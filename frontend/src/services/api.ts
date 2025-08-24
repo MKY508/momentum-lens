@@ -73,6 +73,14 @@ export const api = {
       axiosInstance.get('/api/market/correlation', { params: { anchor } }),
     getHS300Chart: (period = '1Y'): Promise<any> =>
       axiosInstance.get('/api/market/hs300-chart', { params: { period } }),
+    
+    // Data source endpoints
+    testDataSource: (sourceId: string, apiKey?: string): Promise<{ success: boolean; latency?: number }> =>
+      axiosInstance.post('/api/market/test-source', { sourceId, apiKey }),
+    fetchFromSource: (sourceId: string, symbol: string, apiKey?: string): Promise<{ data: any }> =>
+      axiosInstance.post('/api/market/fetch', { sourceId, symbol, apiKey }),
+    fetchBatch: (sourceId: string, symbols: string[]): Promise<{ data: Record<string, any> }> =>
+      axiosInstance.post('/api/market/fetch-batch', { sourceId, symbols }),
   },
 
   // Portfolio endpoints

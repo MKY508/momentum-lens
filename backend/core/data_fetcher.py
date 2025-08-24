@@ -489,6 +489,195 @@ class DataFetcher:
             'time': datetime.now()
         }
     
+    async def test_data_source(self, source_id: str, api_key: Optional[str] = None) -> Dict[str, Any]:
+        """Test connection to a specific data source"""
+        start_time = asyncio.get_event_loop().time()
+        
+        try:
+            if source_id == 'akshare':
+                if 'akshare' in self.sources:
+                    # Test with a simple query
+                    loop = asyncio.get_event_loop()
+                    df = await loop.run_in_executor(
+                        None,
+                        ak.fund_etf_spot_em
+                    )
+                    success = not df.empty
+                else:
+                    success = False
+                    
+            elif source_id == 'sina':
+                # Test Sina Finance endpoint
+                async with self._session.get('https://hq.sinajs.cn/list=sh510300') as response:
+                    success = response.status == 200
+                    
+            elif source_id == 'eastmoney':
+                # Test East Money endpoint
+                params = {
+                    'secid': '1.510300',
+                    'fields': 'f2',
+                    '_': int(datetime.now().timestamp() * 1000)
+                }
+                async with self._session.get(self.EASTMONEY_ETF_URL, params=params) as response:
+                    success = response.status == 200
+                    
+            elif source_id == 'tushare':
+                if 'tushare' in self.sources and api_key:
+                    try:
+                        ts.set_token(api_key)
+                        api = ts.pro_api()
+                        loop = asyncio.get_event_loop()
+                        df = await loop.run_in_executor(
+                            None,
+                            api.trade_cal,
+                            exchange='SSE',
+                            cal_date=date.today().strftime('%Y%m%d')
+                        )
+                        success = not df.empty
+                    except:
+                        success = False
+                else:
+                    success = False
+                    
+            elif source_id == 'yahoo':
+                # Test Yahoo Finance through yfinance
+                try:
+                    import yfinance as yf
+                    loop = asyncio.get_event_loop()
+                    ticker = await loop.run_in_executor(
+                        None,
+                        yf.Ticker,
+                        '510300.SS'
+                    )
+                    info = await loop.run_in_executor(
+                        None,
+                        lambda: ticker.info
+                    )
+                    success = bool(info)
+                except:
+                    success = False
+            else:
+                success = False
+                
+            latency = int((asyncio.get_event_loop().time() - start_time) * 1000)
+            
+            return {
+                'success': success,
+                'latency': latency,
+                'source_id': source_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Error testing {source_id}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'source_id': source_id
+            }
+    
+    async def fetch_from_source(self, source_id: str, symbol: str, api_key: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch data from a specific source"""
+        try:
+            if source_id == 'akshare':
+                if 'akshare' in self.sources:
+                    exchange = 'sh' if symbol.startswith('5') else 'sz'
+                    full_symbol = f"{exchange}{symbol}"
+                    
+                    loop = asyncio.get_event_loop()
+                    df = await loop.run_in_executor(
+                        None,
+                        ak.fund_etf_spot_em
+                    )
+                    
+                    # Filter for the specific ETF
+                    etf_data = df[df['代码'] == symbol]
+                    if not etf_data.empty:
+                        row = etf_data.iloc[0]
+                        return {
+                            'symbol': symbol,
+                            'price': float(row.get('最新价', 0)),
+                            'change': float(row.get('涨跌额', 0)),
+                            'changePercent': float(row.get('涨跌幅', 0)),
+                            'volume': float(row.get('成交量', 0)),
+                            'high': float(row.get('最高', 0)),
+                            'low': float(row.get('最低', 0)),
+                            'open': float(row.get('今开', 0)),
+                            'prevClose': float(row.get('昨收', 0))
+                        }
+                        
+            elif source_id == 'sina':
+                # Fetch from Sina Finance
+                exchange = 'sh' if symbol.startswith('5') else 'sz'
+                full_symbol = f"{exchange}{symbol}"
+                
+                async with self._session.get(f'https://hq.sinajs.cn/list={full_symbol}') as response:
+                    if response.status == 200:
+                        text = await response.text()
+                        # Parse Sina format
+                        parts = text.split(',')
+                        if len(parts) > 30:
+                            return {
+                                'symbol': symbol,
+                                'price': float(parts[3]),
+                                'change': float(parts[3]) - float(parts[2]),
+                                'changePercent': ((float(parts[3]) - float(parts[2])) / float(parts[2])) * 100,
+                                'volume': float(parts[8]),
+                                'high': float(parts[4]),
+                                'low': float(parts[5]),
+                                'open': float(parts[1]),
+                                'prevClose': float(parts[2])
+                            }
+                            
+            elif source_id == 'eastmoney':
+                # Fetch from East Money
+                data = await self._fetch_eastmoney_iopv(symbol)
+                if data:
+                    return {
+                        'symbol': symbol,
+                        'price': data['last_price'],
+                        'iopv': data.get('iopv'),
+                        'premium': data.get('premium_discount'),
+                        'volume': data.get('volume', 0),
+                        'high': data.get('high', 0),
+                        'low': data.get('low', 0),
+                        'open': data.get('open', 0)
+                    }
+                    
+            elif source_id == 'tushare' and api_key:
+                # Fetch from Tushare
+                ts.set_token(api_key)
+                api = ts.pro_api()
+                
+                ts_code = f"{symbol}.SH" if symbol.startswith('5') else f"{symbol}.SZ"
+                
+                loop = asyncio.get_event_loop()
+                df = await loop.run_in_executor(
+                    None,
+                    api.fund_daily,
+                    ts_code=ts_code,
+                    trade_date=date.today().strftime('%Y%m%d')
+                )
+                
+                if not df.empty:
+                    row = df.iloc[0]
+                    return {
+                        'symbol': symbol,
+                        'price': float(row['close']),
+                        'change': float(row['change']),
+                        'changePercent': float(row['pct_chg']),
+                        'volume': float(row['vol']),
+                        'high': float(row['high']),
+                        'low': float(row['low']),
+                        'open': float(row['open']),
+                        'prevClose': float(row['pre_close'])
+                    }
+                    
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching from {source_id}: {e}")
+            return None
+    
     async def fetch_market_indicators(self, date: date) -> MarketIndicators:
         """Fetch and calculate market indicators for a specific date"""
         # Fetch CSI 300 data

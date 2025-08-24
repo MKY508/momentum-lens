@@ -21,17 +21,24 @@ import {
   Stack,
   Tooltip,
   IconButton,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   Save as SaveIcon,
   Restore as RestoreIcon,
   Info as InfoIcon,
   Warning as WarningIcon,
+  Api as ApiIcon,
+  Settings as SettingsIcon,
+  Dashboard as DashboardIcon,
 } from '@mui/icons-material';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { Settings, ParameterPreset } from '../../types';
+import APIConfiguration from './APIConfiguration';
+import APIDocumentation from './APIDocumentation';
 
 const PRESET_CONFIGS: Record<string, ParameterPreset> = {
   Aggressive: {
@@ -72,7 +79,30 @@ const ETF_POOLS = {
   ],
 };
 
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`settings-tabpanel-${index}`}
+      aria-labelledby={`settings-tab-${index}`}
+      {...other}
+    >
+      {value === index && <Box>{children}</Box>}
+    </div>
+  );
+}
+
 const ParameterSettings: React.FC = () => {
+  const [tabValue, setTabValue] = useState(0);
   const [selectedPreset, setSelectedPreset] = useState<string>('Balanced');
   const [customParams, setCustomParams] = useState<ParameterPreset>(PRESET_CONFIGS.Balanced);
   const [etfPool, setEtfPool] = useState({
@@ -184,6 +214,10 @@ const ParameterSettings: React.FC = () => {
     }
   };
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+  };
+
   const renderParameterSlider = (
     label: string,
     param: keyof ParameterPreset,
@@ -231,35 +265,48 @@ const ParameterSettings: React.FC = () => {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4" fontWeight={600}>
-          Parameter Settings
+          Settings
         </Typography>
-        <Box display="flex" gap={2}>
-          <Button
-            variant="outlined"
-            startIcon={<RestoreIcon />}
-            onClick={handleReset}
-            disabled={!hasChanges}
-          >
-            Reset
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            disabled={!hasChanges || saveSettingsMutation.isPending}
-          >
-            Save Changes
-          </Button>
-        </Box>
+        {tabValue === 0 && (
+          <Box display="flex" gap={2}>
+            <Button
+              variant="outlined"
+              startIcon={<RestoreIcon />}
+              onClick={handleReset}
+              disabled={!hasChanges}
+            >
+              Reset
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={handleSave}
+              disabled={!hasChanges || saveSettingsMutation.isPending}
+            >
+              Save Changes
+            </Button>
+          </Box>
+        )}
       </Box>
 
-      {hasChanges && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
-          You have unsaved changes. Click "Save Changes" to apply them.
-        </Alert>
-      )}
+      {/* Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={tabValue} onChange={handleTabChange} aria-label="settings tabs">
+          <Tab icon={<SettingsIcon />} label="Parameters" />
+          <Tab icon={<ApiIcon />} label="API Configuration" />
+          <Tab icon={<InfoIcon />} label="Documentation" />
+        </Tabs>
+      </Box>
 
-      <Grid container spacing={3}>
+      {/* Tab Panels */}
+      <TabPanel value={tabValue} index={0}>
+        {hasChanges && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            You have unsaved changes. Click "Save Changes" to apply them.
+          </Alert>
+        )}
+
+        <Grid container spacing={3}>
         {/* Parameter Presets */}
         <Grid item xs={12} lg={6}>
           <Card>
@@ -495,6 +542,17 @@ const ParameterSettings: React.FC = () => {
           </Grid>
         </Grid>
       </Grid>
+      </TabPanel>
+
+      {/* API Configuration Tab */}
+      <TabPanel value={tabValue} index={1}>
+        <APIConfiguration />
+      </TabPanel>
+
+      {/* Documentation Tab */}
+      <TabPanel value={tabValue} index={2}>
+        <APIDocumentation />
+      </TabPanel>
     </Box>
   );
 };

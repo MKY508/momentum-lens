@@ -38,6 +38,7 @@ import {
   Notifications as NotificationsIcon,
   Brightness4 as DarkModeIcon,
   Brightness7 as LightModeIcon,
+  Api as ApiIcon,
 } from '@mui/icons-material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -49,6 +50,9 @@ import CoreModule from './components/Core/CoreModule';
 import SatelliteModule from './components/Satellite/SatelliteModule';
 import LogsKPI from './components/Logs/LogsKPI';
 import ParameterSettings from './components/Settings/ParameterSettings';
+import APITest from './pages/APITest';
+import DataSourceStatus from './components/Common/DataSourceStatus';
+import { dataSourceManager } from './services/dataSourceManager';
 
 const DRAWER_WIDTH = 240;
 
@@ -75,7 +79,19 @@ const navigationItems: NavigationItem[] = [
   { path: '/satellite', label: 'Satellite Module', icon: <SatelliteIcon /> },
   { path: '/logs', label: 'Logs & KPI', icon: <LogsIcon /> },
   { path: '/settings', label: 'Settings', icon: <SettingsIcon /> },
+  { path: '/api-test', label: 'API Test', icon: <ApiIcon /> },
 ];
+
+// Data Source Context
+export const DataSourceContext = React.createContext<{
+  activeSource: string;
+  setActiveSource: (source: string) => void;
+  connectionStatus: Map<string, boolean>;
+}>({
+  activeSource: 'akshare',
+  setActiveSource: () => {},
+  connectionStatus: new Map()
+});
 
 interface AppContentProps {
   isDarkMode: boolean;
@@ -169,6 +185,8 @@ const AppContent: React.FC<AppContentProps> = ({ isDarkMode, toggleDarkMode }) =
           </Typography>
 
           <Box display="flex" alignItems="center" gap={2}>
+            <DataSourceStatus compact={false} />
+            
             <IconButton color="inherit" onClick={toggleDarkMode}>
               {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
             </IconButton>
@@ -237,6 +255,7 @@ const AppContent: React.FC<AppContentProps> = ({ isDarkMode, toggleDarkMode }) =
           <Route path="/satellite" element={<SatelliteModule />} />
           <Route path="/logs" element={<LogsKPI />} />
           <Route path="/settings" element={<ParameterSettings />} />
+          <Route path="/api-test" element={<APITest />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Box>

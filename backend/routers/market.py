@@ -2,9 +2,10 @@
 Market data API endpoints.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import date, datetime, timedelta
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Body
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.models.base import get_db_dependency
@@ -18,6 +19,21 @@ from backend.schemas.market import (
 )
 
 router = APIRouter()
+
+# Request models for data source endpoints
+class TestSourceRequest(BaseModel):
+    sourceId: str
+    apiKey: Optional[str] = None
+
+class FetchDataRequest(BaseModel):
+    sourceId: str
+    symbol: str
+    apiKey: Optional[str] = None
+
+class FetchBatchRequest(BaseModel):
+    sourceId: str
+    symbols: List[str]
+    apiKey: Optional[str] = None
 
 
 @router.get("/etf/{code}", response_model=ETFInfoResponse)
@@ -151,3 +167,99 @@ async def get_iopv_data(
         raise HTTPException(status_code=404, detail="IOPV data not available")
     
     return iopv_data
+
+
+# Data source management endpoints
+@router.post("/test-source")
+async def test_data_source(request: TestSourceRequest = Body(...)):
+    """Test connection to a specific data source"""
+    data_fetcher = get_data_fetcher()
+    result = await data_fetcher.test_data_source(request.sourceId, request.apiKey)
+    return result
+
+
+@router.post("/fetch")
+async def fetch_from_source(request: FetchDataRequest = Body(...)):
+    """Fetch data from a specific data source"""
+    data_fetcher = get_data_fetcher()
+    data = await data_fetcher.fetch_from_source(
+        request.sourceId, 
+        request.symbol, 
+        request.apiKey
+    )
+    
+    if not data:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No data available from {request.sourceId} for {request.symbol}"
+        )
+    
+    return {"data": data}
+
+
+@router.post("/fetch-batch")
+async def fetch_batch_from_source(request: FetchBatchRequest = Body(...)):
+    """Fetch batch data from a specific data source"""
+    data_fetcher = get_data_fetcher()
+    results = {}
+    
+    for symbol in request.symbols:
+        data = await data_fetcher.fetch_from_source(
+            request.sourceId,
+            symbol,
+            request.apiKey
+        )
+        if data:
+            results[symbol] = data
+    
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No data available from {request.sourceId}"
+        )
+    
+    return {"data": results}
+
+
+@router.get("/data-sources")
+async def get_data_sources():
+    """Get list of available data sources"""
+    return {
+        "sources": [
+            {
+                "id": "akshare",
+                "name": "AKShare",
+                "type": "free",
+                "requiresKey": False,
+                "available": True
+            },
+            {
+                "id": "sina",
+                "name": "Sina Finance",
+                "type": "free",
+                "requiresKey": False,
+                "available": True
+            },
+            {
+                "id": "eastmoney",
+                "name": "East Money",
+                "type": "free",
+                "requiresKey": False,
+                "available": True
+            },
+            {
+                "id": "tushare",
+                "name": "Tushare",
+                "type": "freemium",
+                "requiresKey": True,
+                "available": True
+            },
+            {
+                "id": "yahoo",
+                "name": "Yahoo Finance",
+                "type": "free",
+                "requiresKey": False,
+                "available": True
+            }
+        ]
+    }
