@@ -56,7 +56,7 @@ fi
 echo -e "${BLUE}⚛️  设置React前端...${NC}"
 if [ ! -d "frontend/node_modules" ]; then
     cd frontend
-    npm install
+    npm install --legacy-peer-deps
     cd ..
     echo -e "${GREEN}✅ 前端依赖安装完成${NC}"
 else
