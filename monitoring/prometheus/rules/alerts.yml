@@ -1,0 +1,254 @@
+# Alert rules for Momentum Lens ETF trading system
+
+groups:
+  # Application Health Alerts
+  - name: momentum-lens.health
+    rules:
+      - alert: BackendDown
+        expr: up{job="momentum-lens-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "Momentum Lens backend is down"
+          description: "The backend service has been down for more than 1 minute."
+          runbook_url: "https://docs.momentum-lens.com/alerts/backend-down"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{job="momentum-lens-backend",status=~"5.."}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="momentum-lens-backend"}[5m])) > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: backend
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s for the last 10 minutes."
+
+  # Database Alerts
+  - name: momentum-lens.database
+    rules:
+      - alert: DatabaseDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "The PostgreSQL database has been unreachable for more than 2 minutes."
+
+      - alert: DatabaseConnectionsHigh
+        expr: pg_stat_database_numbackends / pg_settings_max_connections * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High database connection usage"
+          description: "Database connection usage is {{ $value | humanizePercentage }}."
+
+      - alert: DatabaseSlowQueries
+        expr: rate(pg_stat_database_tup_returned[5m]) / rate(pg_stat_database_tup_fetched[5m]) < 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Database queries are running slowly"
+          description: "Query efficiency has dropped to {{ $value | humanizePercentage }}."
+
+      - alert: DatabaseDiskSpaceHigh
+        expr: (pg_database_size_bytes / (1024^3)) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Database size is large"
+          description: "Database size is {{ $value | humanize }}GB."
+
+  # Redis Cache Alerts
+  - name: momentum-lens.cache
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: cache
+        annotations:
+          summary: "Redis cache is down"
+          description: "Redis has been unreachable for more than 1 minute."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          service: cache
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}."
+
+      - alert: RedisConnectionsHigh
+        expr: redis_connected_clients > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: cache
+        annotations:
+          summary: "High number of Redis connections"
+          description: "{{ $value }} clients are connected to Redis."
+
+  # System Resource Alerts
+  - name: momentum-lens.system
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}."
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}:{{ $labels.mountpoint }}."
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical disk space"
+          description: "Disk usage is {{ $value | humanizePercentage }} on {{ $labels.instance }}:{{ $labels.mountpoint }}."
+
+  # Trading System Specific Alerts
+  - name: momentum-lens.trading
+    rules:
+      - alert: TradingSystemInactive
+        expr: time() - max(momentum_lens_last_signal_timestamp) > 3600
+        for: 5m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Trading system has been inactive"
+          description: "No trading signals generated for more than 1 hour."
+
+      - alert: HighTradingVolume
+        expr: rate(momentum_lens_trades_total[1h]) > 50
+        for: 10m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Unusually high trading volume"
+          description: "Trading volume is {{ $value }} trades per hour."
+
+      - alert: MarketDataStale
+        expr: time() - max(momentum_lens_last_price_update) > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "Market data is stale"
+          description: "Market data hasn't been updated for more than 5 minutes."
+
+      - alert: PortfolioValueDrop
+        expr: (momentum_lens_portfolio_current_value - momentum_lens_portfolio_previous_value) / momentum_lens_portfolio_previous_value < -0.05
+        for: 1m
+        labels:
+          severity: critical
+          service: trading
+        annotations:
+          summary: "Significant portfolio value drop"
+          description: "Portfolio value dropped by {{ $value | humanizePercentage }} in the last period."
+
+  # WebSocket Connection Alerts
+  - name: momentum-lens.websocket
+    rules:
+      - alert: WebSocketConnectionsHigh
+        expr: momentum_lens_websocket_connections > 200
+        for: 5m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: "High number of WebSocket connections"
+          description: "{{ $value }} WebSocket connections are active."
+
+      - alert: WebSocketMessageQueueHigh
+        expr: momentum_lens_websocket_message_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: websocket
+        annotations:
+          summary: "WebSocket message queue is large"
+          description: "WebSocket message queue has {{ $value }} pending messages."
+
+  # Container Alerts
+  - name: momentum-lens.containers
+    rules:
+      - alert: ContainerKilled
+        expr: time() - container_last_seen > 60
+        for: 1m
+        labels:
+          severity: critical
+          service: container
+        annotations:
+          summary: "Container was killed"
+          description: "Container {{ $labels.name }} was killed more than 1 minute ago."
+
+      - alert: ContainerCpuUsageHigh
+        expr: rate(container_cpu_usage_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: container
+        annotations:
+          summary: "Container CPU usage is high"
+          description: "Container {{ $labels.name }} CPU usage is {{ $value | humanizePercentage }}."
+
+      - alert: ContainerMemoryUsageHigh
+        expr: container_memory_usage_bytes / container_spec_memory_limit_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: container
+        annotations:
+          summary: "Container memory usage is high"
+          description: "Container {{ $labels.name }} memory usage is {{ $value | humanizePercentage }}."
