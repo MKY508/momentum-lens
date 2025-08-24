@@ -41,7 +41,6 @@ import {
   Api as ApiIcon,
 } from '@mui/icons-material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from 'react-hot-toast';
 import { lightTheme, darkTheme } from './styles/theme';
 import webSocketService from './services/websocket';
@@ -74,12 +73,12 @@ interface NavigationItem {
 }
 
 const navigationItems: NavigationItem[] = [
-  { path: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
-  { path: '/core', label: 'Core Module', icon: <CoreIcon /> },
-  { path: '/satellite', label: 'Satellite Module', icon: <SatelliteIcon /> },
-  { path: '/logs', label: 'Logs & KPI', icon: <LogsIcon /> },
-  { path: '/settings', label: 'Settings', icon: <SettingsIcon /> },
-  { path: '/api-test', label: 'API Test', icon: <ApiIcon /> },
+  { path: '/dashboard', label: '决策台', icon: <DashboardIcon /> },
+  { path: '/core', label: 'Core模块', icon: <CoreIcon /> },
+  { path: '/satellite', label: 'Satellite模块', icon: <SatelliteIcon /> },
+  { path: '/logs', label: '日志/KPI', icon: <LogsIcon /> },
+  { path: '/settings', label: '参数设置', icon: <SettingsIcon /> },
+  { path: '/api-test', label: 'API测试', icon: <ApiIcon /> },
 ];
 
 // Data Source Context
@@ -296,7 +295,7 @@ const App: React.FC = () => {
             },
           }}
         />
-        {process.env.NODE_ENV === 'development' && <ReactQueryDevtools />}
+        {/* ReactQueryDevtools removed for compatibility */}
       </ThemeProvider>
     </QueryClientProvider>
   );

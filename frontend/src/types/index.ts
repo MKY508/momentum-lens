@@ -83,7 +83,7 @@ export interface MomentumETF {
 }
 
 export interface ParameterPreset {
-  name: 'Aggressive' | 'Balanced' | 'Conservative' | 'Custom';
+  name: '进攻' | '均衡' | '保守' | '自定义';
   stopLoss: number;
   buffer: number;
   minHolding: number;

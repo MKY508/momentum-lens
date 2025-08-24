@@ -41,24 +41,24 @@ import APIConfiguration from './APIConfiguration';
 import APIDocumentation from './APIDocumentation';
 
 const PRESET_CONFIGS: Record<string, ParameterPreset> = {
-  Aggressive: {
-    name: 'Aggressive',
+  '进攻': {
+    name: '进攻',
     stopLoss: 10,
     buffer: 2,
     minHolding: 14,
     bandwidth: 5,
     correlationThreshold: 0.8,
   },
-  Balanced: {
-    name: 'Balanced',
+  '均衡': {
+    name: '均衡',
     stopLoss: 12,
     buffer: 3,
     minHolding: 28,
     bandwidth: 7,
     correlationThreshold: 0.8,
   },
-  Conservative: {
-    name: 'Conservative',
+  '保守': {
+    name: '保守',
     stopLoss: 15,
     buffer: 4,
     minHolding: 28,
@@ -69,13 +69,13 @@ const PRESET_CONFIGS: Record<string, ParameterPreset> = {
 
 const ETF_POOLS = {
   gaming: [
-    { code: '516010', name: 'Gaming ETF A' },
-    { code: '159869', name: 'Gaming ETF B' },
+    { code: '516010', name: '游戏动漫ETF' },
+    { code: '159869', name: '游戏ETF' },
   ],
   newEnergy: [
-    { code: '516160', name: 'New Energy ETF A' },
-    { code: '515790', name: 'New Energy ETF B' },
-    { code: '515030', name: 'New Energy ETF C' },
+    { code: '516160', name: '新能源ETF' },
+    { code: '515790', name: '光伏ETF' },
+    { code: '515030', name: '新能源车ETF' },
   ],
 };
 
@@ -103,8 +103,8 @@ function TabPanel(props: TabPanelProps) {
 
 const ParameterSettings: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
-  const [selectedPreset, setSelectedPreset] = useState<string>('Balanced');
-  const [customParams, setCustomParams] = useState<ParameterPreset>(PRESET_CONFIGS.Balanced);
+  const [selectedPreset, setSelectedPreset] = useState<string>('均衡');
+  const [customParams, setCustomParams] = useState<ParameterPreset>(PRESET_CONFIGS['均衡']);
   const [etfPool, setEtfPool] = useState({
     gaming: '516010',
     newEnergy: '516160',
@@ -125,30 +125,32 @@ const ParameterSettings: React.FC = () => {
   const { data: settings, isLoading, refetch } = useQuery({
     queryKey: ['settings'],
     queryFn: api.config.getSettings,
-    onSuccess: (data) => {
-      if (data) {
-        setSelectedPreset(data.preset.name);
-        setCustomParams(data.preset);
-        setEtfPool({
-          gaming: data.etfPool.gaming,
-          newEnergy: data.etfPool.newEnergy,
-        });
-        setNotifications(data.notifications);
-        setDisplaySettings(data.display);
-      }
-    },
   });
+
+  // Update state when settings data changes
+  useEffect(() => {
+    if (settings) {
+      setSelectedPreset(settings.preset?.name || '均衡');
+      setCustomParams(settings.preset || PRESET_CONFIGS['均衡']);
+      setEtfPool({
+        gaming: settings.etfPool?.gaming || '516010',
+        newEnergy: settings.etfPool?.newEnergy || '516160',
+      });
+      setNotifications(settings.notifications || { stopLoss: true, yearline: true });
+      setDisplaySettings(settings.display || { darkMode: false, showCharts: true, showPremiums: true });
+    }
+  }, [settings]);
 
   // Save settings mutation
   const saveSettingsMutation = useMutation({
     mutationFn: (newSettings: Partial<Settings>) => api.config.updateSettings(newSettings),
     onSuccess: () => {
-      toast.success('Settings saved successfully');
+      toast.success('设置保存成功');
       setHasChanges(false);
       refetch();
     },
     onError: (error) => {
-      toast.error('Failed to save settings');
+      toast.error('设置保存失败');
       console.error('Settings save error:', error);
     },
   });
@@ -157,18 +159,18 @@ const ParameterSettings: React.FC = () => {
   useEffect(() => {
     if (settings) {
       const hasParamChanges = 
-        JSON.stringify(customParams) !== JSON.stringify(settings.preset) ||
-        selectedPreset !== settings.preset.name;
+        JSON.stringify(customParams) !== JSON.stringify(settings?.preset) ||
+        selectedPreset !== settings?.preset?.name;
       
       const hasEtfChanges = 
-        etfPool.gaming !== settings.etfPool.gaming ||
-        etfPool.newEnergy !== settings.etfPool.newEnergy;
+        etfPool.gaming !== settings?.etfPool?.gaming ||
+        etfPool.newEnergy !== settings?.etfPool?.newEnergy;
       
       const hasNotificationChanges = 
-        JSON.stringify(notifications) !== JSON.stringify(settings.notifications);
+        JSON.stringify(notifications) !== JSON.stringify(settings?.notifications);
       
       const hasDisplayChanges = 
-        JSON.stringify(displaySettings) !== JSON.stringify(settings.display);
+        JSON.stringify(displaySettings) !== JSON.stringify(settings?.display);
 
       setHasChanges(hasParamChanges || hasEtfChanges || hasNotificationChanges || hasDisplayChanges);
     }
@@ -176,22 +178,23 @@ const ParameterSettings: React.FC = () => {
 
   const handlePresetChange = (preset: string) => {
     setSelectedPreset(preset);
-    if (preset !== 'Custom' && PRESET_CONFIGS[preset]) {
+    if (preset !== '自定义' && PRESET_CONFIGS[preset]) {
       setCustomParams(PRESET_CONFIGS[preset]);
     }
   };
 
   const handleParameterChange = (param: keyof ParameterPreset, value: number) => {
     setCustomParams(prev => ({ ...prev, [param]: value }));
-    setSelectedPreset('Custom');
+    setSelectedPreset('自定义');
   };
 
   const handleSave = () => {
     const newSettings: Partial<Settings> = {
       preset: { ...customParams, name: selectedPreset as any },
       etfPool: {
-        ...etfPool,
-        excludedETFs: settings?.etfPool.excludedETFs || [],
+        gaming: etfPool.gaming as any,
+        newEnergy: etfPool.newEnergy as any,
+        excludedETFs: settings?.etfPool?.excludedETFs || [],
       },
       notifications,
       display: displaySettings,
@@ -202,14 +205,14 @@ const ParameterSettings: React.FC = () => {
 
   const handleReset = () => {
     if (settings) {
-      setSelectedPreset(settings.preset.name);
-      setCustomParams(settings.preset);
+      setSelectedPreset(settings.preset?.name || '均衡');
+      setCustomParams(settings.preset || PRESET_CONFIGS['均衡']);
       setEtfPool({
-        gaming: settings.etfPool.gaming,
-        newEnergy: settings.etfPool.newEnergy,
+        gaming: settings.etfPool?.gaming || '516010',
+        newEnergy: settings.etfPool?.newEnergy || '516160',
       });
-      setNotifications(settings.notifications);
-      setDisplaySettings(settings.display);
+      setNotifications(settings.notifications || { stopLoss: true, yearline: true });
+      setDisplaySettings(settings.display || { darkMode: false, showCharts: true, showPremiums: true });
       setHasChanges(false);
     }
   };
@@ -265,7 +268,7 @@ const ParameterSettings: React.FC = () => {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4" fontWeight={600}>
-          Settings
+          参数设置
         </Typography>
         {tabValue === 0 && (
           <Box display="flex" gap={2}>
@@ -275,7 +278,7 @@ const ParameterSettings: React.FC = () => {
               onClick={handleReset}
               disabled={!hasChanges}
             >
-              Reset
+              恢复默认
             </Button>
             <Button
               variant="contained"
@@ -283,7 +286,7 @@ const ParameterSettings: React.FC = () => {
               onClick={handleSave}
               disabled={!hasChanges || saveSettingsMutation.isPending}
             >
-              Save Changes
+              保存设置
             </Button>
           </Box>
         )}
@@ -292,9 +295,9 @@ const ParameterSettings: React.FC = () => {
       {/* Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tabValue} onChange={handleTabChange} aria-label="settings tabs">
-          <Tab icon={<SettingsIcon />} label="Parameters" />
-          <Tab icon={<ApiIcon />} label="API Configuration" />
-          <Tab icon={<InfoIcon />} label="Documentation" />
+          <Tab icon={<SettingsIcon />} label="参数配置" />
+          <Tab icon={<ApiIcon />} label="API配置" />
+          <Tab icon={<InfoIcon />} label="文档说明" />
         </Tabs>
       </Box>
 
@@ -302,7 +305,7 @@ const ParameterSettings: React.FC = () => {
       <TabPanel value={tabValue} index={0}>
         {hasChanges && (
           <Alert severity="warning" sx={{ mb: 3 }}>
-            You have unsaved changes. Click "Save Changes" to apply them.
+            您有未保存的更改。请点击"保存设置"以应用更改。
           </Alert>
         )}
 
@@ -312,13 +315,13 @@ const ParameterSettings: React.FC = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom fontWeight={600}>
-                Strategy Parameters
+                策略参数
               </Typography>
 
               {/* Preset Selector */}
               <Box mb={3}>
                 <Typography variant="subtitle2" gutterBottom>
-                  Preset Configuration
+                  预设配置
                 </Typography>
                 <Stack direction="row" spacing={1}>
                   {Object.keys(PRESET_CONFIGS).map((preset) => (
@@ -331,10 +334,10 @@ const ParameterSettings: React.FC = () => {
                     />
                   ))}
                   <Chip
-                    label="Custom"
-                    onClick={() => setSelectedPreset('Custom')}
-                    color={selectedPreset === 'Custom' ? 'primary' : 'default'}
-                    variant={selectedPreset === 'Custom' ? 'filled' : 'outlined'}
+                    label="自定义"
+                    onClick={() => setSelectedPreset('自定义')}
+                    color={selectedPreset === '自定义' ? 'primary' : 'default'}
+                    variant={selectedPreset === '自定义' ? 'filled' : 'outlined'}
                   />
                 </Stack>
               </Box>
@@ -343,53 +346,53 @@ const ParameterSettings: React.FC = () => {
 
               {/* Custom Parameters */}
               {renderParameterSlider(
-                'Stop Loss',
+                '止损',
                 'stopLoss',
                 5,
                 20,
                 1,
                 '%',
-                'Maximum loss before position is closed'
+                '触发止损的最大亏损比例'
               )}
 
               {renderParameterSlider(
-                'Buffer',
+                '缓冲区',
                 'buffer',
                 1,
                 5,
                 0.5,
                 '%',
-                'Price buffer for order execution'
+                '限价单执行时的价格缓冲区间'
               )}
 
               {renderParameterSlider(
-                'Min Holding Period',
+                '最短持有期',
                 'minHolding',
                 7,
                 60,
                 7,
-                ' days',
-                'Minimum days to hold a position'
+                ' 天',
+                '持仓不轮动的最短天数要求'
               )}
 
               {renderParameterSlider(
-                'Rebalance Bandwidth',
+                '再平衡带宽',
                 'bandwidth',
                 3,
                 10,
                 1,
                 'pp',
-                'Deviation threshold for rebalancing'
+                '触发再平衡操作的偏差带宽'
               )}
 
               {renderParameterSlider(
-                'Correlation Threshold',
+                '相关性阈值',
                 'correlationThreshold',
                 0.5,
                 1.0,
                 0.1,
                 '',
-                'Maximum allowed correlation between ETFs'
+                '两腿ETF之间的最大相关系数阈值'
               )}
             </CardContent>
           </Card>
@@ -403,13 +406,13 @@ const ParameterSettings: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom fontWeight={600}>
-                    ETF Pool Management
+                    ETF池管理
                   </Typography>
 
                   {/* Gaming ETF Selection */}
                   <Box mb={3}>
                     <Typography variant="subtitle2" gutterBottom>
-                      Gaming ETF (Choose One)
+                      成长线ETF（二选一）
                     </Typography>
                     <RadioGroup
                       value={etfPool.gaming}
@@ -429,7 +432,7 @@ const ParameterSettings: React.FC = () => {
                   {/* New Energy ETF Selection */}
                   <Box>
                     <Typography variant="subtitle2" gutterBottom>
-                      New Energy ETF (Choose One)
+                      电新链ETF（三选一）
                     </Typography>
                     <RadioGroup
                       value={etfPool.newEnergy}
@@ -454,7 +457,7 @@ const ParameterSettings: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom fontWeight={600}>
-                    Notifications
+                    通知设置
                   </Typography>
 
                   <Stack spacing={2}>
@@ -465,7 +468,7 @@ const ParameterSettings: React.FC = () => {
                           onChange={(e) => setNotifications(prev => ({ ...prev, alerts: e.target.checked }))}
                         />
                       }
-                      label="System Alerts"
+                      label="系统预警"
                     />
                     <FormControlLabel
                       control={
@@ -474,7 +477,7 @@ const ParameterSettings: React.FC = () => {
                           onChange={(e) => setNotifications(prev => ({ ...prev, trades: e.target.checked }))}
                         />
                       }
-                      label="Trade Executions"
+                      label="交易执行"
                     />
                     <FormControlLabel
                       control={
@@ -483,7 +486,7 @@ const ParameterSettings: React.FC = () => {
                           onChange={(e) => setNotifications(prev => ({ ...prev, rebalancing: e.target.checked }))}
                         />
                       }
-                      label="Rebalancing Alerts"
+                      label="再平衡提醒"
                     />
                   </Stack>
                 </CardContent>
@@ -495,7 +498,7 @@ const ParameterSettings: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom fontWeight={600}>
-                    Display Settings
+                    显示设置
                   </Typography>
 
                   <Stack spacing={2}>
@@ -509,7 +512,7 @@ const ParameterSettings: React.FC = () => {
                           }))}
                         />
                       }
-                      label="Dark Mode"
+                      label="深色模式"
                     />
                     <FormControlLabel
                       control={
@@ -521,7 +524,7 @@ const ParameterSettings: React.FC = () => {
                           }))}
                         />
                       }
-                      label="Compact Mode"
+                      label="紧凑模式"
                     />
                     <FormControlLabel
                       control={
@@ -533,7 +536,7 @@ const ParameterSettings: React.FC = () => {
                           }))}
                         />
                       }
-                      label="Show Premium Values"
+                      label="显示溢价值"
                     />
                   </Stack>
                 </CardContent>

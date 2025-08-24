@@ -250,7 +250,7 @@ class DataSourceManager {
         data = await this.fetchFromSource(source.id, symbol);
         
         if (data) {
-          toast.info(`Using fallback: ${source.name}`, {
+          toast(`Using fallback: ${source.name}`, {
             duration: 3000,
             icon: '🔄'
           });
@@ -485,6 +485,3 @@ class DataSourceManager {
 
 // Export singleton instance
 export const dataSourceManager = new DataSourceManager();
-
-// Export types
-export type { DataSourceConfig, MarketData };

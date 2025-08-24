@@ -76,11 +76,11 @@ const SatelliteModule: React.FC = () => {
   const rotationMutation = useMutation({
     mutationFn: () => api.portfolio.rebalance(),
     onSuccess: () => {
-      toast.success('Portfolio rotation completed successfully');
+      toast.success('组合轮动完成');
       refetchRankings();
     },
     onError: (error) => {
-      toast.error('Failed to rotate portfolio');
+      toast.error('组合轮动失败');
       console.error('Rotation error:', error);
     },
   });
@@ -220,7 +220,7 @@ const SatelliteModule: React.FC = () => {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4" fontWeight={600}>
-          Satellite Module
+          Satellite模块
         </Typography>
         <Box display="flex" gap={2}>
           <Button
@@ -230,9 +230,9 @@ const SatelliteModule: React.FC = () => {
             onClick={() => rotationMutation.mutate()}
             disabled={!isMonthEnd || rotationMutation.isPending}
           >
-            {isMonthEnd ? 'Rotate Portfolio' : `Rotation on ${format(endOfMonth(today), 'MMM dd')}`}
+            {isMonthEnd ? '轮动组合' : `下次轮动: ${format(endOfMonth(today), 'MM月dd日')}`}
           </Button>
-          <Tooltip title="Refresh">
+          <Tooltip title="刷新">
             <IconButton onClick={() => refetchRankings()}>
               <RefreshIcon />
             </IconButton>
@@ -247,7 +247,7 @@ const SatelliteModule: React.FC = () => {
             <CardContent>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                 <Typography variant="h6" fontWeight={600}>
-                  Momentum Rankings
+                  动量排行
                 </Typography>
                 
                 {/* Filters */}
@@ -259,9 +259,9 @@ const SatelliteModule: React.FC = () => {
                       displayEmpty
                       startAdornment={<FilterIcon sx={{ mr: 1, fontSize: 18 }} />}
                     >
-                      <MenuItem value="none">All Growth</MenuItem>
-                      <MenuItem value="516010">Gaming (516010)</MenuItem>
-                      <MenuItem value="159869">Gaming (159869)</MenuItem>
+                      <MenuItem value="none">全部成长线</MenuItem>
+                      <MenuItem value="516010">游戏动漫 (516010)</MenuItem>
+                      <MenuItem value="159869">游戏动漫 (159869)</MenuItem>
                     </Select>
                   </FormControl>
 
@@ -272,10 +272,10 @@ const SatelliteModule: React.FC = () => {
                       displayEmpty
                       startAdornment={<FilterIcon sx={{ mr: 1, fontSize: 18 }} />}
                     >
-                      <MenuItem value="none">All New Energy</MenuItem>
-                      <MenuItem value="516160">New Energy (516160)</MenuItem>
-                      <MenuItem value="515790">New Energy (515790)</MenuItem>
-                      <MenuItem value="515030">New Energy (515030)</MenuItem>
+                      <MenuItem value="none">全部电新链</MenuItem>
+                      <MenuItem value="516160">新能源 (516160)</MenuItem>
+                      <MenuItem value="515790">光伏 (515790)</MenuItem>
+                      <MenuItem value="515030">新能源车 (515030)</MenuItem>
                     </Select>
                   </FormControl>
                 </Box>
@@ -290,15 +290,15 @@ const SatelliteModule: React.FC = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Rank</TableCell>
-                        <TableCell>Code</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell align="right">r60</TableCell>
-                        <TableCell align="right">r120</TableCell>
-                        <TableCell align="right">Score</TableCell>
-                        <TableCell align="right">Volume</TableCell>
-                        <TableCell align="right">Spread</TableCell>
-                        <TableCell>Type</TableCell>
+                        <TableCell>排名</TableCell>
+                        <TableCell>代码</TableCell>
+                        <TableCell>名称</TableCell>
+                        <TableCell align="right">60日涨幅</TableCell>
+                        <TableCell align="right">120日涨幅</TableCell>
+                        <TableCell align="right">评分</TableCell>
+                        <TableCell align="right">成交量</TableCell>
+                        <TableCell align="right">价差</TableCell>
+                        <TableCell>类型</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -371,12 +371,12 @@ const SatelliteModule: React.FC = () => {
                   </Table>
                 </TableContainer>
               ) : (
-                <Alert severity="info">No momentum data available</Alert>
+                <Alert severity="info">暂无动量数据</Alert>
               )}
 
               <Box mt={2}>
                 <Typography variant="caption" color="text.secondary">
-                  Score = 0.6 × r60 + 0.4 × r120 (60-day and 120-day returns)
+                  动量评分 = 0.6 × 60日涨幅 + 0.4 × 120日涨幅
                 </Typography>
               </Box>
             </CardContent>
@@ -391,25 +391,25 @@ const SatelliteModule: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom fontWeight={600}>
-                    Qualification Status
+                    资格状态
                   </Typography>
                   
                   <Stack spacing={2}>
                     {renderQualificationLight(
                       qualificationStatus.topQualified, 
-                      'Top 5 ETFs Qualified'
+                      '前5名ETF资格合格'
                     )}
                     {renderQualificationLight(
                       qualificationStatus.correlationOk, 
-                      'Correlation < 0.8'
+                      '相关系数 ≤ 0.8'
                     )}
                     {renderQualificationLight(
                       qualificationStatus.volumeOk, 
-                      'Volume Requirements Met'
+                      '成交量充足'
                     )}
                     {renderQualificationLight(
                       qualificationStatus.spreadOk, 
-                      'Spread < 0.5%'
+                      '买卖价差 < 0.5%'
                     )}
                   </Stack>
                 </CardContent>
@@ -421,7 +421,7 @@ const SatelliteModule: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom fontWeight={600}>
-                    Correlation Matrix (Top 5)
+                    相关性矩阵（前5名）
                   </Typography>
                   
                   {correlationLoading ? (
@@ -431,12 +431,12 @@ const SatelliteModule: React.FC = () => {
                   ) : correlationData ? (
                     renderCorrelationHeatmap()
                   ) : (
-                    <Alert severity="info">Select ETFs to view correlation</Alert>
+                    <Alert severity="info">选择ETF以查看相关性数据</Alert>
                   )}
 
                   <Box mt={2}>
                     <Typography variant="caption" color="text.secondary">
-                      Values above 0.8 indicate high correlation (red)
+                      相关系数 {'>'} 0.8 表示高度相关（红色标记）
                     </Typography>
                   </Box>
                 </CardContent>

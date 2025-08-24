@@ -81,10 +81,10 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
         onSourceChange(sourceId);
       }
       
-      toast.success(`Switched to ${dataSourceManager.getSourceById(sourceId)?.name}`);
+      toast.success(`已切换到 ${dataSourceManager.getSourceById(sourceId)?.name}`);
     } else {
-      toast.error(`Failed to connect to ${dataSourceManager.getSourceById(sourceId)?.name}`);
-      setAlertMessage(`Unable to connect to ${dataSourceManager.getSourceById(sourceId)?.name}. Please check your configuration.`);
+      toast.error(`无法连接到 ${dataSourceManager.getSourceById(sourceId)?.name}`);
+      setAlertMessage(`无法连接到 ${dataSourceManager.getSourceById(sourceId)?.name}。请检查您的配置。`);
       setShowAlert(true);
     }
     
@@ -99,7 +99,7 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
     if (activeSource) {
       const isConnected = await dataSourceManager.testConnection(activeSource.id);
       if (!isConnected) {
-        setAlertMessage(`Connection to ${activeSource.name} lost. Switching to fallback...`);
+        setAlertMessage(`与 ${activeSource.name} 的连接已丢失。正在切换到备用数据源...`);
         setShowAlert(true);
         
         // Try to find a working fallback
@@ -109,12 +109,12 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
           if (connected) {
             dataSourceManager.setActiveSource(source.id);
             setActiveSource(source);
-            toast.info(`Switched to ${source.name} (fallback)`);
+            toast(`已切换到 ${source.name}（备用）`, { icon: 'ℹ️' });
             break;
           }
         }
       } else {
-        toast.success('Connection verified');
+        toast.success('连接验证成功');
       }
     }
     
@@ -166,7 +166,7 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
     }
     
     return (
-      <Tooltip title={`Latency: ${latency}ms`}>
+      <Tooltip title={`延迟: ${latency}毫秒`}>
         <Box display="flex" alignItems="center">
           <SignalIcon 
             fontSize="small" 
@@ -181,7 +181,7 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
   if (compact) {
     return (
       <Box display="flex" alignItems="center" gap={1}>
-        <Tooltip title={activeSource ? `Data: ${activeSource.name}` : 'No data source'}>
+        <Tooltip title={activeSource ? `数据源: ${activeSource.name}` : '无数据源'}>
           <Badge
             color={getStatusColor() as any}
             variant="dot"
@@ -208,10 +208,10 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
           label={
             <Box display="flex" alignItems="center" gap={0.5}>
               <Typography variant="body2">
-                {activeSource ? activeSource.name : 'No Source'}
+                {activeSource ? activeSource.name : '无数据源'}
               </Typography>
               {activeSource?.type === 'free' && (
-                <Chip size="small" label="Free" color="success" style={{ height: 16, fontSize: 10 }} />
+                <Chip size="small" label="免费" color="success" style={{ height: 16, fontSize: 10 }} />
               )}
               {getLatencyIndicator()}
             </Box>
@@ -223,7 +223,7 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
           variant="outlined"
         />
         
-        <Tooltip title="Refresh connection">
+        <Tooltip title="刷新连接">
           <IconButton size="small" onClick={handleRefresh} disabled={isRefreshing}>
             <RefreshIcon fontSize="small" />
           </IconButton>
@@ -253,7 +253,7 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
       >
         <Box px={2} py={1}>
           <Typography variant="subtitle2" color="text.secondary">
-            Select Data Source
+            选择数据源
           </Typography>
         </Box>
         
@@ -280,17 +280,17 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
                       {source.name}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {source.rateLimit || 'No rate limit'}
+                      {source.rateLimit || '无限制'}
                     </Typography>
                   </Box>
                 </Box>
                 
                 <Box display="flex" gap={0.5}>
                   {source.type === 'free' && (
-                    <Chip size="small" label="Free" color="success" style={{ height: 20, fontSize: 10 }} />
+                    <Chip size="small" label="免费" color="success" style={{ height: 20, fontSize: 10 }} />
                   )}
                   {isActive && (
-                    <Chip size="small" label="Active" color="primary" style={{ height: 20, fontSize: 10 }} />
+                    <Chip size="small" label="当前" color="primary" style={{ height: 20, fontSize: 10 }} />
                   )}
                 </Box>
               </Box>
@@ -303,7 +303,7 @@ const DataSourceStatus: React.FC<DataSourceStatusProps> = ({
         {showDetails && (
           <Box px={2} py={1}>
             <Typography variant="caption" color="text.secondary">
-              Last updated: {lastUpdateTime.toLocaleTimeString()}
+              最后更新: {lastUpdateTime.toLocaleTimeString()}
             </Typography>
           </Box>
         )}

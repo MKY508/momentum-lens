@@ -212,7 +212,7 @@ const CoreModule: React.FC = () => {
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4" fontWeight={600}>
-          Core Module
+          Core模块
         </Typography>
         <Box display="flex" gap={2}>
           <Button
@@ -222,9 +222,9 @@ const CoreModule: React.FC = () => {
             onClick={handleRebalance}
             disabled={!rebalancingStatus.required}
           >
-            {rebalancingStatus.required ? 'Rebalance Required' : 'Portfolio Balanced'}
+            {rebalancingStatus.required ? '需要再平衡' : '组合已平衡'}
           </Button>
-          <Tooltip title="Refresh">
+          <Tooltip title="刷新">
             <IconButton onClick={() => refetchHoldings()}>
               <RefreshIcon />
             </IconButton>
@@ -238,7 +238,7 @@ const CoreModule: React.FC = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom fontWeight={600}>
-                Current Holdings
+                当前持仓
               </Typography>
               
               {holdingsLoading ? (
@@ -250,12 +250,12 @@ const CoreModule: React.FC = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Code</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell align="right">Target</TableCell>
-                        <TableCell align="right">Current</TableCell>
-                        <TableCell>Deviation</TableCell>
-                        <TableCell align="right">Premium</TableCell>
+                        <TableCell>代码</TableCell>
+                        <TableCell>名称</TableCell>
+                        <TableCell align="right">目标权重</TableCell>
+                        <TableCell align="right">当前权重</TableCell>
+                        <TableCell>偏差</TableCell>
+                        <TableCell align="right">溢价率</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -301,7 +301,7 @@ const CoreModule: React.FC = () => {
                   </Table>
                 </TableContainer>
               ) : (
-                <Alert severity="info">No holdings data available</Alert>
+                <Alert severity="info">暂无持仓数据</Alert>
               )}
 
               {/* Rebalancing Meter */}
@@ -311,12 +311,12 @@ const CoreModule: React.FC = () => {
                   sx={{ mt: 2 }}
                   action={
                     <Button color="inherit" size="small" onClick={handleRebalance}>
-                      Rebalance Now
+                      立即再平衡
                     </Button>
                   }
                 >
-                  Maximum deviation: {rebalancingStatus.maxDeviation.toFixed(1)}% 
-                  ({rebalancingStatus.etfsToRebalance.length} ETFs need rebalancing)
+                  最大偏差：{rebalancingStatus.maxDeviation.toFixed(1)}% 
+                  （{rebalancingStatus.etfsToRebalance.length} 只ETF需要再平衡）
                 </Alert>
               )}
             </CardContent>
@@ -333,7 +333,7 @@ const CoreModule: React.FC = () => {
                   <Box display="flex" alignItems="center" gap={1} mb={2}>
                     <ScheduleIcon color="primary" />
                     <Typography variant="h6" fontWeight={600}>
-                      DCA Schedule
+                      定投计划
                     </Typography>
                   </Box>
 
@@ -344,7 +344,7 @@ const CoreModule: React.FC = () => {
                       <Grid container spacing={2}>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">
-                            Next Investment
+                            下次定投日期
                           </Typography>
                           <Typography variant="h6" fontWeight={600}>
                             {format(new Date(dcaSchedule.nextDate), 'MMM dd, yyyy')}
@@ -352,7 +352,7 @@ const CoreModule: React.FC = () => {
                         </Grid>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">
-                            Amount
+                            金额
                           </Typography>
                           <Typography variant="h6" fontWeight={600}>
                             ¥{dcaSchedule.amount.toLocaleString()}
@@ -360,7 +360,7 @@ const CoreModule: React.FC = () => {
                         </Grid>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">
-                            Frequency
+                            频率
                           </Typography>
                           <Chip 
                             label={dcaSchedule.frequency} 
@@ -370,10 +370,10 @@ const CoreModule: React.FC = () => {
                         </Grid>
                         <Grid item xs={6}>
                           <Typography variant="body2" color="text.secondary">
-                            Status
+                            状态
                           </Typography>
                           <Chip 
-                            label={dcaSchedule.enabled ? 'Active' : 'Paused'} 
+                            label={dcaSchedule.enabled ? '已启用' : '已暂停'} 
                             size="small" 
                             color={dcaSchedule.enabled ? 'success' : 'default'}
                           />
@@ -381,7 +381,7 @@ const CoreModule: React.FC = () => {
                       </Grid>
                     </Box>
                   ) : (
-                    <Alert severity="info">No DCA schedule configured</Alert>
+                    <Alert severity="info">尚未配置定投计划</Alert>
                   )}
                 </CardContent>
               </Card>
@@ -392,7 +392,7 @@ const CoreModule: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom fontWeight={600}>
-                    HS300 Index with MA200
+                    沪深300指数与200日均线
                   </Typography>
                   
                   <Box 

@@ -36,7 +36,7 @@ import { indicatorColors } from '../../styles/theme';
 
 const PARAMETER_PRESETS: ParameterPreset[] = [
   {
-    name: 'Aggressive',
+    name: '进攻',
     stopLoss: 10,
     buffer: 2,
     minHolding: 14,
@@ -44,7 +44,7 @@ const PARAMETER_PRESETS: ParameterPreset[] = [
     correlationThreshold: 0.8,
   },
   {
-    name: 'Balanced',
+    name: '均衡',
     stopLoss: 12,
     buffer: 3,
     minHolding: 28,
@@ -52,7 +52,7 @@ const PARAMETER_PRESETS: ParameterPreset[] = [
     correlationThreshold: 0.8,
   },
   {
-    name: 'Conservative',
+    name: '保守',
     stopLoss: 15,
     buffer: 4,
     minHolding: 28,
@@ -62,7 +62,7 @@ const PARAMETER_PRESETS: ParameterPreset[] = [
 ];
 
 const DecisionDashboard: React.FC = () => {
-  const [selectedPreset, setSelectedPreset] = useState<string>('Balanced');
+  const [selectedPreset, setSelectedPreset] = useState<string>('均衡');
   const [showCopiedAlert, setShowCopiedAlert] = useState(false);
 
   // Fetch market indicators
@@ -83,11 +83,11 @@ const DecisionDashboard: React.FC = () => {
   const calculateDecisionMutation = useMutation({
     mutationFn: (preset: ParameterPreset) => api.decisions.calculate(preset),
     onSuccess: (newDecision) => {
-      toast.success('New decision calculated successfully');
+      toast.success('新决策计算成功');
       refetchDecision();
     },
     onError: (error) => {
-      toast.error('Failed to calculate decision');
+      toast.error('决策计算失败');
       console.error('Decision calculation error:', error);
     },
   });
@@ -104,23 +104,23 @@ const DecisionDashboard: React.FC = () => {
     if (!decision) return;
 
     const orderText = `
-ETF Trading Order
+ETF交易订单
 ================
-First Leg: ${decision.firstLeg.code} ${decision.firstLeg.name}
-Score: ${decision.firstLeg.score.toFixed(2)}
-Weight: ${decision.weights.trial}% (Trial) / ${decision.weights.full}% (Full)
+第一腿: ${decision.firstLeg.code} ${decision.firstLeg.name}
+动量评分: ${decision.firstLeg.score.toFixed(2)}
+权重: ${decision.weights.trial}% (试仓) / ${decision.weights.full}% (全仓)
 
-Second Leg: ${decision.secondLeg.code} ${decision.secondLeg.name}
-Score: ${decision.secondLeg.score.toFixed(2)}
-Weight: ${decision.weights.trial}% (Trial) / ${decision.weights.full}% (Full)
+第二腿: ${decision.secondLeg.code} ${decision.secondLeg.name}
+动量评分: ${decision.secondLeg.score.toFixed(2)}
+权重: ${decision.weights.trial}% (试仓) / ${decision.weights.full}% (全仓)
 
-IOPV Bands: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
-Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
+时间戳: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
     `.trim();
 
     navigator.clipboard.writeText(orderText);
     setShowCopiedAlert(true);
-    toast.success('Order copied to clipboard');
+    toast.success('订单已复制到剪贴板');
   }, [decision]);
 
   const handleExportCSV = useCallback(async () => {
@@ -134,9 +134,9 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      toast.success('CSV exported successfully');
+      toast.success('CSV导出成功');
     } catch (error) {
-      toast.error('Failed to export CSV');
+      toast.error('CSV导出失败');
       console.error('Export error:', error);
     }
   }, []);
@@ -152,9 +152,9 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      toast.success('PDF exported successfully');
+      toast.success('PDF导出成功');
     } catch (error) {
-      toast.error('Failed to export PDF');
+      toast.error('PDF导出失败');
       console.error('Export error:', error);
     }
   }, []);
@@ -210,7 +210,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4" fontWeight={600}>
-          Decision Dashboard
+          决策台
         </Typography>
         <Box display="flex" gap={2} alignItems="center">
           <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -226,7 +226,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
               ))}
             </Select>
           </FormControl>
-          <Tooltip title="Refresh">
+          <Tooltip title="刷新">
             <IconButton 
               onClick={() => refetchDecision()} 
               disabled={isLoading}
@@ -241,24 +241,24 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
       <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
         <Box display="flex" gap={2} alignItems="center">
           <Typography variant="subtitle1" fontWeight={600}>
-            Market Environment:
+            市场环境：
           </Typography>
           {indicatorsLoading ? (
             <CircularProgress size={20} />
           ) : indicators ? (
             <>
               {renderIndicatorChip(
-                'Yearline',
+                '年线',
                 indicators.yearline.status === 'ABOVE' ? 'positive' : 'negative',
                 indicators.yearline.status
               )}
               {renderIndicatorChip(
-                'ATR',
+                '波动率',
                 indicators.atr.status === 'LOW' ? 'positive' : indicators.atr.status === 'HIGH' ? 'negative' : 'neutral',
                 indicators.atr.value.toFixed(2)
               )}
               {renderIndicatorChip(
-                'CHOP',
+                '震荡',
                 indicators.chop.status === 'TRENDING' ? 'positive' : 'neutral',
                 indicators.chop.value.toFixed(2)
               )}
@@ -279,12 +279,12 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
               {/* Left Column - ETF Selection */}
               <Grid item xs={12} md={6}>
                 <Typography variant="h6" gutterBottom fontWeight={600}>
-                  Selected ETFs
+                  选中ETF
                 </Typography>
                 
                 <Box mb={3}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    First Leg
+                    第一腿
                   </Typography>
                   <Paper variant="outlined" sx={{ p: 2 }}>
                     <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -297,7 +297,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                         </Typography>
                       </Box>
                       <Chip 
-                        label={`Score: ${decision.firstLeg.score.toFixed(2)}`}
+                        label={`评分: ${decision.firstLeg.score.toFixed(2)}`}
                         color="primary"
                         size="small"
                       />
@@ -307,7 +307,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
 
                 <Box mb={3}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Second Leg
+                    第二腿
                   </Typography>
                   <Paper variant="outlined" sx={{ p: 2 }}>
                     <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -320,7 +320,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                         </Typography>
                       </Box>
                       <Chip 
-                        label={`Score: ${decision.secondLeg.score.toFixed(2)}`}
+                        label={`评分: ${decision.secondLeg.score.toFixed(2)}`}
                         color="primary"
                         size="small"
                       />
@@ -330,23 +330,23 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
 
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Suggested Weights
+                    建议权重
                   </Typography>
                   <Stack spacing={1}>
                     <Box display="flex" justifyContent="space-between">
-                      <Typography variant="body2">Trial Position:</Typography>
+                      <Typography variant="body2">试仓：</Typography>
                       <Typography variant="body2" fontWeight={600}>
                         {decision.weights.trial}%
                       </Typography>
                     </Box>
                     <Box display="flex" justifyContent="space-between">
-                      <Typography variant="body2">Full Position:</Typography>
+                      <Typography variant="body2">全仓：</Typography>
                       <Typography variant="body2" fontWeight={600}>
                         {decision.weights.full}%
                       </Typography>
                     </Box>
                     <Box display="flex" justifyContent="space-between">
-                      <Typography variant="body2">IOPV Bands:</Typography>
+                      <Typography variant="body2">IOPV区间：</Typography>
                       <Typography variant="body2" fontWeight={600}>
                         [{decision.iopvBands.lower}, {decision.iopvBands.upper}]
                       </Typography>
@@ -360,19 +360,19 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
               {/* Right Column - Qualifications */}
               <Grid item xs={12} md={5}>
                 <Typography variant="h6" gutterBottom fontWeight={600}>
-                  Qualification Status
+                  资格状态
                 </Typography>
 
                 <Stack spacing={2} mb={3}>
-                  {renderQualificationLight(decision.qualifications.buffer, 'Buffer Requirement')}
-                  {renderQualificationLight(decision.qualifications.minHolding, 'Min Holding Period')}
-                  {renderQualificationLight(decision.qualifications.correlation, 'Correlation ≤ 0.8')}
-                  {renderQualificationLight(decision.qualifications.legLimit, 'Leg Limit')}
+                  {renderQualificationLight(decision.qualifications.buffer, '缓冲区要求')}
+                  {renderQualificationLight(decision.qualifications.minHolding, '最短持有期')}
+                  {renderQualificationLight(decision.qualifications.correlation, '相关系数 ≤ 0.8')}
+                  {renderQualificationLight(decision.qualifications.legLimit, '腿数限制要求')}
                 </Stack>
 
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    QDII Status (513500)
+                    QDII状态（标普500）
                   </Typography>
                   <Paper 
                     variant="outlined" 
@@ -388,7 +388,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                   >
                     <Box display="flex" justifyContent="space-between" alignItems="center">
                       <Typography variant="body2">
-                        Premium: {decision.qdiiStatus.premium.toFixed(2)}%
+                        溢价率: {decision.qdiiStatus.premium.toFixed(2)}%
                       </Typography>
                       <Chip
                         label={decision.qdiiStatus.status}
@@ -407,7 +407,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
 
                 <Box mt={3}>
                   <Typography variant="caption" color="text.secondary">
-                    Last Updated: {format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+                    更新时间: {format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                   </Typography>
                 </Box>
               </Grid>
@@ -421,28 +421,28 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                 startIcon={<CopyIcon />}
                 onClick={handleCopyOrder}
               >
-                Copy Order
+                复制订单
               </Button>
               <Button
                 variant="outlined"
                 startIcon={<DownloadIcon />}
                 onClick={handleExportCSV}
               >
-                Export CSV
+                导出CSV
               </Button>
               <Button
                 variant="outlined"
                 startIcon={<DownloadIcon />}
                 onClick={handleExportPDF}
               >
-                Export PDF
+                导出PDF
               </Button>
             </Box>
           </CardContent>
         </Card>
       ) : (
         <Alert severity="info">
-          No decision available. Click refresh to generate a new decision.
+          暂无决策数据，请点击刷新按钮生成新决策。
         </Alert>
       )}
 
@@ -454,7 +454,7 @@ Timestamp: ${format(new Date(decision.timestamp), 'yyyy-MM-dd HH:mm:ss')}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert onClose={() => setShowCopiedAlert(false)} severity="success">
-          Order copied to clipboard!
+          订单已复制到剪贴板！
         </Alert>
       </Snackbar>
     </Box>

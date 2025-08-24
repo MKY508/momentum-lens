@@ -90,3 +90,14 @@ temp/
 config/secrets.json
 *.key
 *.pem
+
+# Process ID files
+*.pid
+.*.pid
+
+# Environment specific files
+.env.lite
+.env.production
+
+# Frontend simple (development version)
+frontend_simple/
