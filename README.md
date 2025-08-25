@@ -1,5 +1,15 @@
 # Momentum Lens - 智能ETF动量交易系统
 
+> ⚠️ **项目状态：建设中 / Under Construction**
+> 
+> 🚧 **当前项目正在积极开发中，暂不可用于生产环境**
+> 
+> 本项目处于早期开发阶段，核心功能正在实现中。欢迎关注项目进展，但请注意当前版本可能存在功能不完整、bug或不稳定的情况。
+> 
+> 预计完成时间：2024年Q4
+
+---
+
 ## 项目简介
 
 Momentum Lens 是一个专为中国市场设计的智能化ETF动量交易系统。通过综合动量评分、相关性分析和多层风险管理，为投资者提供系统化的交易决策支持。
@@ -12,59 +22,62 @@ Momentum Lens 是一个专为中国市场设计的智能化ETF动量交易系统
 - ⚡ **一键决策**: 简化操作，每周二定期执行
 - 📈 **实时监控**: WebSocket推送，实时数据更新
 
-## 快速开始
+## 开发状态
 
-### 🚀 统一智能启动器（推荐）
+### 已完成功能 ✅
+- 基础项目架构设计
+- 核心模块框架搭建
+- 数据获取接口（AKShare集成）
+- 前端React框架初始化
+
+### 开发中功能 🚧
+- 决策引擎算法实现
+- 实时数据WebSocket推送
+- 风险管理模块
+- 用户界面完善
+
+### 计划功能 📋
+- 回测系统
+- 多账户管理
+- 高级图表分析
+- 移动端支持
+
+## 快速开始（开发环境）
+
+### 🚀 启动开发环境
 
 ```bash
-# 一键启动，自动处理所有配置
-./start-unified.sh
+# 一键启动开发服务
+./start.sh
 
 # 停止所有服务
 ./stop-all.sh
 ```
 
-**统一启动器特性**：
-- 🔍 自动检测并解决端口冲突
-- 🧹 清理旧进程，防止资源占用
-- 🎯 6种启动模式可选
-- 📊 智能环境检测和依赖安装
-- 🔧 自动配置端口和环境变量
+**注意**：当前仅适用于开发和测试，不建议用于实际投资决策。
 
-### 启动模式选择
-
-1. **轻量级模式**（默认推荐）
-   - SQLite数据库，无需安装PostgreSQL
-   - 内存缓存，无需Redis
-   - AKShare免费数据源
-
-2. **标准模式**
-   - 需要PostgreSQL + Redis
-   - 完整功能支持
-
-3. **Docker模式**
-   - 一键部署完整环境
-   - 包含所有依赖
-
-4. **仅后端API**
-   - 只启动FastAPI服务
-   - 适合API开发测试
-
-5. **仅前端界面**
-   - 只启动React应用
-   - 适合UI开发
-
-6. **Vite前端模式**
-   - 现代化前端，无依赖冲突
-   - 更快的热更新
-
-### 环境要求（最小）
+### 开发环境要求
 
 - Python 3.8+
-- Node.js 16+（可选，前端需要）
-- 无需数据库（轻量级模式使用SQLite）
+- Node.js 16+
+- Git
 
-访问 http://localhost:3000 即可使用系统。
+### 安装步骤
+
+1. 克隆仓库
+```bash
+git clone https://github.com/MKY508/momentum-lens.git
+cd momentum-lens
+```
+
+2. 启动开发服务器
+```bash
+./start.sh
+```
+
+3. 访问开发环境
+- 前端: http://localhost:3000
+- API文档: http://localhost:8000/docs
 
 ## 项目结构
 
@@ -411,15 +424,31 @@ pre-commit install
 
 本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
 
+## 贡献指南
+
+本项目欢迎贡献！如果你有兴趣参与开发：
+
+1. Fork 本仓库
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交你的更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
+
 ## 联系方式
 
-- 项目主页: [https://github.com/yourusername/momentum-lens](https://github.com/yourusername/momentum-lens)
-- Issue反馈: [https://github.com/yourusername/momentum-lens/issues](https://github.com/yourusername/momentum-lens/issues)
+- 项目主页: [https://github.com/MKY508/momentum-lens](https://github.com/MKY508/momentum-lens)
+- Issue反馈: [https://github.com/MKY508/momentum-lens/issues](https://github.com/MKY508/momentum-lens/issues)
 
 ## 免责声明
 
-本系统仅供学习和研究使用，不构成投资建议。投资有风险，入市需谨慎。
+⚠️ **重要提醒**：
+- 本系统仅供学习和研究使用
+- 不构成任何投资建议
+- 项目仍在开发中，功能不完整
+- 投资有风险，入市需谨慎
 
 ---
 
-**Momentum Lens** - 让投资决策更智能、更系统、更简单。
+**Momentum Lens** - 构建中的智能ETF投资决策系统
+
+🚧 **Building in Progress | 建设进行中** 🚧
