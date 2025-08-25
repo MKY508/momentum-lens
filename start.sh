@@ -145,8 +145,8 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # 设置环境变量并启动
-export VITE_API_URL=http://localhost:8000
-npm run dev > ../frontend.log 2>&1 &
+export REACT_APP_API_URL=http://localhost:8000
+PORT=3000 npm start > ../frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > ../.frontend.pid
 cd ..

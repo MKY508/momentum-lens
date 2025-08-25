@@ -3,7 +3,7 @@ Momentum Lens Lite - 轻量级后端
 使用SQLite和内存缓存，无需外部依赖
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -13,6 +13,20 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
+import sys
+import os
+
+# 添加项目根目录到路径
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# 导入中间件（如果存在）
+try:
+    from middleware.rate_limit import rate_limit_middleware
+    from middleware.auth import auth_middleware
+    MIDDLEWARE_AVAILABLE = True
+except ImportError:
+    MIDDLEWARE_AVAILABLE = False
+    print("⚠️ Middleware not available, running without auth/rate-limiting")
 
 app = FastAPI(title="Momentum Lens Lite API")
 
@@ -24,6 +38,12 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
+
+# 添加限流中间件（如果可用）
+if MIDDLEWARE_AVAILABLE:
+    @app.middleware("http")
+    async def add_rate_limiting(request: Request, call_next):
+        return await rate_limit_middleware(request, call_next)
 
 # 内存缓存
 cache = {}
