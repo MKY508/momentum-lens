@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Momentum Lens 按钮测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success {
+            background: #c8e6c9;
+            color: #2e7d32;
+        }
+        .error {
+            background: #ffcdd2;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <h1>Momentum Lens API 测试面板</h1>
+    
+    <div class="test-section">
+        <h2>健康检查</h2>
+        <button onclick="testHealth()">测试健康状态</button>
+        <div id="health-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>市场指标</h2>
+        <button onclick="testIndicators()">获取市场指标</button>
+        <div id="indicators-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>当前决策</h2>
+        <button onclick="testDecision()">获取当前决策</button>
+        <div id="decision-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>计算新决策</h2>
+        <button onclick="calculateDecision('进攻')">进攻模式</button>
+        <button onclick="calculateDecision('均衡')">均衡模式</button>
+        <button onclick="calculateDecision('保守')">保守模式</button>
+        <div id="calculate-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>持仓信息</h2>
+        <button onclick="testHoldings()">获取持仓</button>
+        <div id="holdings-result" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        
+        async function testHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                document.getElementById('health-result').innerHTML = 
+                    `<div class="success">✅ API健康状态正常\n${JSON.stringify(data, null, 2)}</div>`;
+            } catch (error) {
+                document.getElementById('health-result').innerHTML = 
+                    `<div class="error">❌ 错误: ${error.message}</div>`;
+            }
+        }
+        
+        async function testIndicators() {
+            try {
+                const response = await fetch(`${API_BASE}/market/indicators`);
+                const data = await response.json();
+                document.getElementById('indicators-result').innerHTML = 
+                    `<div class="success">✅ 市场指标获取成功\n年线状态: ${data.yearline.status}\nATR: ${data.atr.value}\nCHOP: ${data.chop.status}</div>`;
+            } catch (error) {
+                document.getElementById('indicators-result').innerHTML = 
+                    `<div class="error">❌ 错误: ${error.message}</div>`;
+            }
+        }
+        
+        async function testDecision() {
+            try {
+                const response = await fetch(`${API_BASE}/decisions/current`);
+                const data = await response.json();
+                document.getElementById('decision-result').innerHTML = 
+                    `<div class="success">✅ 当前决策获取成功\n第一腿: ${data.firstLeg.name} (${data.firstLeg.code})\n第二腿: ${data.secondLeg.name} (${data.secondLeg.code})\n权重: 试仓${data.weights.trial}% / 全仓${data.weights.full}%</div>`;
+            } catch (error) {
+                document.getElementById('decision-result').innerHTML = 
+                    `<div class="error">❌ 错误: ${error.message}</div>`;
+            }
+        }
+        
+        async function calculateDecision(preset) {
+            try {
+                const params = {
+                    '进攻': { stopLoss: 10, buffer: 2, minHolding: 14 },
+                    '均衡': { stopLoss: 12, buffer: 3, minHolding: 14 },
+                    '保守': { stopLoss: 15, buffer: 4, minHolding: 28 }
+                };
+                
+                const response = await fetch(`${API_BASE}/decisions/calculate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(params[preset])
+                });
+                const data = await response.json();
+                document.getElementById('calculate-result').innerHTML = 
+                    `<div class="success">✅ ${preset}模式决策计算成功\n${JSON.stringify(data, null, 2)}</div>`;
+            } catch (error) {
+                document.getElementById('calculate-result').innerHTML = 
+                    `<div class="error">❌ 错误: ${error.message}</div>`;
+            }
+        }
+        
+        async function testHoldings() {
+            try {
+                const response = await fetch(`${API_BASE}/portfolio/holdings`);
+                const data = await response.json();
+                let holdings = data.map(h => `${h.name}(${h.code}): ${h.shares}股`).join('\n');
+                document.getElementById('holdings-result').innerHTML = 
+                    `<div class="success">✅ 持仓获取成功\n${holdings}</div>`;
+            } catch (error) {
+                document.getElementById('holdings-result').innerHTML = 
+                    `<div class="error">❌ 错误: ${error.message}</div>`;
+            }
+        }
+        
+        // 页面加载时自动测试健康状态
+        window.onload = () => {
+            testHealth();
+        };
+    </script>
+</body>
+</html>
