@@ -3,7 +3,7 @@ Portfolio management module for position tracking and rebalancing.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, date, timedelta
 import pandas as pd
 import numpy as np
