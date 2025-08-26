@@ -1,0 +1,646 @@
+# =====================================================
+# ETF 动量核心卫星策略系统 - 完整配置文件
+# =====================================================
+# 版本: 2.0.0
+# 更新时间: 2024-12-26
+# 说明: 预填了候选池、阈值参数和6周建仓计划
+
+# =====================================================
+# 1. ETF 候选池配置
+# =====================================================
+etf_pool:
+  # 宽基指数 ETF (核心仓位首选)
+  broad_market:
+    - code: "510300"
+      name: "沪深300ETF"
+      category: "宽基"
+      liquidity: "极高"
+      avg_volume: 1000000000  # 日均成交额(元)
+      tracking_index: "沪深300"
+    - code: "510500"
+      name: "中证500ETF"
+      category: "宽基"
+      liquidity: "高"
+      avg_volume: 500000000
+      tracking_index: "中证500"
+    - code: "159915"
+      name: "创业板ETF"
+      category: "宽基"
+      liquidity: "高"
+      avg_volume: 800000000
+      tracking_index: "创业板指"
+    - code: "588000"
+      name: "科创50ETF"
+      category: "宽基"
+      liquidity: "中"
+      avg_volume: 300000000
+      tracking_index: "科创50"
+    - code: "510050"
+      name: "上证50ETF"
+      category: "宽基"
+      liquidity: "极高"
+      avg_volume: 1200000000
+      tracking_index: "上证50"
+    - code: "159949"
+      name: "创业板50ETF"
+      category: "宽基"
+      liquidity: "中"
+      avg_volume: 200000000
+      tracking_index: "创业板50"
+
+  # 行业 ETF (卫星仓位)
+  sector:
+    # 科技类
+    - code: "515000"
+      name: "科技ETF"
+      category: "科技"
+      liquidity: "高"
+      avg_volume: 600000000
+    - code: "159939"
+      name: "信息技术ETF"
+      category: "科技"
+      liquidity: "中"
+      avg_volume: 200000000
+    - code: "515230"
+      name: "软件ETF"
+      category: "科技"
+      liquidity: "中"
+      avg_volume: 150000000
+    - code: "159997"
+      name: "电子ETF"
+      category: "科技"
+      liquidity: "中"
+      avg_volume: 180000000
+    - code: "512760"
+      name: "半导体ETF"
+      category: "科技"
+      liquidity: "高"
+      avg_volume: 800000000
+    - code: "515880"
+      name: "通信ETF"
+      category: "科技"
+      liquidity: "中"
+      avg_volume: 150000000
+    
+    # 消费类
+    - code: "159928"
+      name: "消费ETF"
+      category: "消费"
+      liquidity: "高"
+      avg_volume: 400000000
+    - code: "512600"
+      name: "主要消费ETF"
+      category: "消费"
+      liquidity: "中"
+      avg_volume: 200000000
+    - code: "515650"
+      name: "消费50ETF"
+      category: "消费"
+      liquidity: "中"
+      avg_volume: 150000000
+    - code: "159996"
+      name: "家电ETF"
+      category: "消费"
+      liquidity: "低"
+      avg_volume: 50000000
+    - code: "512010"
+      name: "医药ETF"
+      category: "医药"
+      liquidity: "高"
+      avg_volume: 500000000
+    - code: "159929"
+      name: "医药生物ETF"
+      category: "医药"
+      liquidity: "中"
+      avg_volume: 300000000
+    
+    # 金融类
+    - code: "512880"
+      name: "证券ETF"
+      category: "金融"
+      liquidity: "极高"
+      avg_volume: 1500000000
+    - code: "512800"
+      name: "银行ETF"
+      category: "金融"
+      liquidity: "高"
+      avg_volume: 600000000
+    - code: "510230"
+      name: "金融ETF"
+      category: "金融"
+      liquidity: "高"
+      avg_volume: 400000000
+    - code: "159993"
+      name: "保险ETF"
+      category: "金融"
+      liquidity: "低"
+      avg_volume: 30000000
+    - code: "159940"
+      name: "地产ETF"
+      category: "地产"
+      liquidity: "中"
+      avg_volume: 150000000
+    
+    # 周期类
+    - code: "159935"
+      name: "钢铁ETF"
+      category: "周期"
+      liquidity: "低"
+      avg_volume: 80000000
+    - code: "159930"
+      name: "能源ETF"
+      category: "周期"
+      liquidity: "中"
+      avg_volume: 120000000
+    - code: "512170"
+      name: "煤炭ETF"
+      category: "周期"
+      liquidity: "中"
+      avg_volume: 200000000
+    - code: "159980"
+      name: "有色ETF"
+      category: "周期"
+      liquidity: "中"
+      avg_volume: 250000000
+    - code: "515210"
+      name: "化工ETF"
+      category: "周期"
+      liquidity: "中"
+      avg_volume: 180000000
+    
+    # 新能源类
+    - code: "516160"
+      name: "新能源ETF"
+      category: "新能源"
+      liquidity: "高"
+      avg_volume: 600000000
+    - code: "159806"
+      name: "新能源车ETF"
+      category: "新能源"
+      liquidity: "高"
+      avg_volume: 500000000
+    - code: "516660"
+      name: "光伏ETF"
+      category: "新能源"
+      liquidity: "中"
+      avg_volume: 300000000
+    - code: "159790"
+      name: "碳中和ETF"
+      category: "新能源"
+      liquidity: "低"
+      avg_volume: 80000000
+    - code: "516950"
+      name: "风电ETF"
+      category: "新能源"
+      liquidity: "低"
+      avg_volume: 50000000
+    
+  # 主题 ETF
+  theme:
+    - code: "515790"
+      name: "人工智能ETF"
+      category: "主题"
+      liquidity: "中"
+      avg_volume: 200000000
+    - code: "159819"
+      name: "区块链ETF"
+      category: "主题"
+      liquidity: "低"
+      avg_volume: 50000000
+    - code: "159766"
+      name: "旅游ETF"
+      category: "主题"
+      liquidity: "低"
+      avg_volume: 30000000
+    - code: "159998"
+      name: "教育ETF"
+      category: "主题"
+      liquidity: "低"
+      avg_volume: 20000000
+    - code: "512690"
+      name: "酒ETF"
+      category: "主题"
+      liquidity: "高"
+      avg_volume: 400000000
+    - code: "516970"
+      name: "基建ETF"
+      category: "主题"
+      liquidity: "中"
+      avg_volume: 100000000
+    - code: "512200"
+      name: "地产ETF"
+      category: "主题"
+      liquidity: "中"
+      avg_volume: 150000000
+  
+  # Smart Beta ETF
+  smart_beta:
+    - code: "510810"
+      name: "上证红利ETF"
+      category: "Smart Beta"
+      liquidity: "中"
+      avg_volume: 200000000
+      strategy: "红利"
+    - code: "515180"
+      name: "红利ETF"
+      category: "Smart Beta"
+      liquidity: "中"
+      avg_volume: 150000000
+      strategy: "红利"
+    - code: "510880"
+      name: "红利低波ETF"
+      category: "Smart Beta"
+      liquidity: "低"
+      avg_volume: 50000000
+      strategy: "低波动"
+    - code: "515450"
+      name: "价值ETF"
+      category: "Smart Beta"
+      liquidity: "低"
+      avg_volume: 30000000
+      strategy: "价值"
+    - code: "159995"
+      name: "质量ETF"
+      category: "Smart Beta"
+      liquidity: "低"
+      avg_volume: 20000000
+      strategy: "质量"
+
+# =====================================================
+# 2. 策略参数配置
+# =====================================================
+strategy:
+  # 动量计算参数
+  momentum:
+    # 动量计算周期（交易日）
+    periods:
+      short: 20      # 月动量
+      medium: 60     # 季动量
+      long: 120      # 半年动量
+      ultra: 240     # 年动量
+    
+    # 动量加权系数
+    weights:
+      short: 0.1     # 短期权重
+      medium: 0.3    # 中期权重
+      long: 0.4      # 长期权重
+      ultra: 0.2     # 超长期权重
+    
+    # 动量阈值
+    thresholds:
+      min_momentum: 0.05      # 最小动量值（5%）
+      max_momentum: 0.50      # 最大动量值（50%）
+      qualify_momentum: 0.10  # 入选门槛（10%）
+  
+  # 核心卫星配置
+  allocation:
+    # 仓位比例
+    core:
+      min_ratio: 0.4    # 核心最小仓位 40%
+      max_ratio: 0.6    # 核心最大仓位 60%
+      default_ratio: 0.5 # 默认 50%
+      etf_count: 2      # 核心持仓数量
+    
+    satellite:
+      min_ratio: 0.4    # 卫星最小仓位 40%
+      max_ratio: 0.6    # 卫星最大仓位 60%
+      default_ratio: 0.5 # 默认 50%
+      etf_count: 3      # 卫星持仓数量
+    
+    # 单只ETF限制
+    position_limits:
+      min_weight: 0.05   # 最小持仓 5%
+      max_weight: 0.30   # 最大持仓 30%
+      core_max: 0.30     # 核心单只上限 30%
+      satellite_max: 0.20 # 卫星单只上限 20%
+  
+  # 换仓规则
+  rebalance:
+    frequency: "weekly"     # 调仓频率：daily/weekly/monthly
+    trigger_day: 5         # 每周五调仓（1-5）
+    buffer_zone: 0.05      # 缓冲区 5%，避免频繁换仓
+    min_trade_value: 10000 # 最小交易金额 1万元
+    max_turnover: 0.30     # 最大换手率 30%
+  
+  # 风险控制
+  risk_control:
+    # 止损设置
+    stop_loss:
+      individual: -0.08    # 个股止损 -8%
+      portfolio: -0.12     # 组合止损 -12%
+      trailing_stop: 0.15  # 移动止损 15%
+    
+    # 相关性控制
+    correlation:
+      max_correlation: 0.7  # 最大相关系数 0.7
+      lookback_days: 60     # 相关性计算周期
+      min_samples: 30       # 最小样本数
+    
+    # 流动性要求
+    liquidity:
+      min_volume: 50000000  # 最小日成交额 5000万
+      min_turnover: 0.01    # 最小换手率 1%
+      volume_ma_days: 20    # 成交额均线周期
+    
+    # 最大回撤控制
+    drawdown:
+      max_drawdown: -0.20   # 最大回撤 -20%
+      recovery_days: 60     # 回撤恢复期
+      risk_reduction: 0.5   # 触发后仓位降低50%
+
+# =====================================================
+# 3. 六周建仓计划
+# =====================================================
+position_building:
+  # 总体计划
+  total_capital: 1000000    # 总资金 100万
+  build_weeks: 6            # 建仓周期 6周
+  
+  # 每周建仓计划
+  weekly_plan:
+    week_1:
+      date: "2025-01-06"    # 第一周开始日期
+      allocation_pct: 0.20  # 分配20%资金
+      amount: 200000
+      priority: "core"      # 优先建立核心仓位
+      targets:
+        - etf: "510300"     # 沪深300
+          weight: 0.5       # 占本周资金50%
+          amount: 100000
+        - etf: "510500"     # 中证500
+          weight: 0.5       # 占本周资金50%
+          amount: 100000
+    
+    week_2:
+      date: "2025-01-13"
+      allocation_pct: 0.20
+      amount: 200000
+      priority: "core_complete"  # 完成核心仓位
+      targets:
+        - etf: "510300"
+          weight: 0.3
+          amount: 60000
+        - etf: "510500"
+          weight: 0.3
+          amount: 60000
+        - etf: "159915"     # 创业板ETF
+          weight: 0.4
+          amount: 80000
+    
+    week_3:
+      date: "2025-01-20"
+      allocation_pct: 0.15
+      amount: 150000
+      priority: "satellite_tech"  # 开始卫星-科技
+      targets:
+        - etf: "512760"     # 半导体
+          weight: 0.4
+          amount: 60000
+        - etf: "515000"     # 科技ETF
+          weight: 0.3
+          amount: 45000
+        - etf: "159997"     # 电子ETF
+          weight: 0.3
+          amount: 45000
+    
+    week_4:
+      date: "2025-01-27"
+      allocation_pct: 0.15
+      amount: 150000
+      priority: "satellite_consumption"  # 卫星-消费
+      targets:
+        - etf: "159928"     # 消费ETF
+          weight: 0.4
+          amount: 60000
+        - etf: "512010"     # 医药ETF
+          weight: 0.3
+          amount: 45000
+        - etf: "512690"     # 酒ETF
+          weight: 0.3
+          amount: 45000
+    
+    week_5:
+      date: "2025-02-03"
+      allocation_pct: 0.15
+      amount: 150000
+      priority: "satellite_diversify"  # 卫星-分散化
+      targets:
+        - etf: "512880"     # 证券ETF
+          weight: 0.3
+          amount: 45000
+        - etf: "516160"     # 新能源ETF
+          weight: 0.4
+          amount: 60000
+        - etf: "510810"     # 红利ETF
+          weight: 0.3
+          amount: 45000
+    
+    week_6:
+      date: "2025-02-10"
+      allocation_pct: 0.15
+      amount: 150000
+      priority: "optimize"  # 优化调整
+      strategy: "根据前5周表现动态调整"
+      reserve: 50000        # 预留机动资金
+  
+  # 建仓规则
+  rules:
+    # 价格规则
+    price_strategy: "分批建仓"  # 分批建仓/一次性建仓
+    price_split: 3             # 每只ETF分3批买入
+    price_interval: "10min"    # 每批间隔10分钟
+    
+    # 时间规则
+    trade_time:
+      morning_start: "09:30"
+      morning_end: "11:30"
+      afternoon_start: "13:00"
+      afternoon_end: "14:45"    # 避开尾盘
+      avoid_opening: 30          # 避开开盘30分钟
+      avoid_closing: 15          # 避开收盘15分钟
+    
+    # 市场条件
+    market_conditions:
+      max_volatility: 0.03       # 当日波动超过3%暂停
+      min_volume_ratio: 0.8      # 成交量低于均值80%暂停
+      circuit_breaker: true      # 遇到熔断暂停
+
+# =====================================================
+# 4. 回测配置
+# =====================================================
+backtest:
+  # 回测周期
+  period:
+    start_date: "2020-01-01"
+    end_date: "2024-12-31"
+    initial_capital: 1000000
+    benchmark: "000300.SH"  # 沪深300指数
+  
+  # 费用设置
+  costs:
+    commission: 0.00025      # 手续费 万2.5
+    slippage: 0.001         # 滑点 0.1%
+    stamp_tax: 0.001        # 印花税 0.1%（卖出）
+    min_commission: 5       # 最低手续费 5元
+  
+  # 回测指标
+  metrics:
+    - "total_return"        # 总收益
+    - "annual_return"       # 年化收益
+    - "sharpe_ratio"        # 夏普比率
+    - "max_drawdown"        # 最大回撤
+    - "win_rate"           # 胜率
+    - "profit_loss_ratio"   # 盈亏比
+    - "trade_count"        # 交易次数
+    - "turnover_rate"      # 换手率
+
+# =====================================================
+# 5. 实盘配置
+# =====================================================
+trading:
+  # 券商接口
+  broker:
+    type: "easytrader"      # 使用 easytrader
+    platform: "ths"         # 同花顺
+    account_file: "account.json"  # 账户配置文件
+    
+  # 交易设置
+  execution:
+    order_type: "limit"     # 限价单
+    price_offset: 0.002     # 价格偏移 0.2%
+    retry_times: 3          # 重试次数
+    retry_interval: 5       # 重试间隔（秒）
+    partial_fill: true      # 允许部分成交
+    
+  # 监控告警
+  monitoring:
+    heartbeat_interval: 60  # 心跳检测（秒）
+    position_sync: 300      # 持仓同步（秒）
+    alert_channels:
+      - "email"
+      - "wechat"
+      - "log"
+    
+    alert_rules:
+      - type: "stop_loss_triggered"
+        level: "critical"
+        action: "immediate_notify"
+      - type: "large_drawdown"
+        threshold: -0.05
+        level: "warning"
+      - type: "execution_failed"
+        level: "error"
+        action: "retry_and_notify"
+
+# =====================================================
+# 6. 数据源配置
+# =====================================================
+data_source:
+  # 主数据源
+  primary:
+    provider: "akshare"
+    timeout: 30
+    retry: 3
+    cache_ttl: 300          # 缓存5分钟
+  
+  # 备用数据源
+  backup:
+    - provider: "tushare"
+      token: "your_token_here"
+    - provider: "baostock"
+    - provider: "yahoo"
+  
+  # 数据更新
+  update:
+    pre_market: "09:00"     # 盘前更新
+    post_market: "15:30"    # 盘后更新
+    realtime_interval: 60   # 实时数据更新间隔（秒）
+
+# =====================================================
+# 7. 输出配置
+# =====================================================
+output:
+  # 报告设置
+  reports:
+    daily:
+      enabled: true
+      time: "16:00"
+      format: ["html", "pdf", "excel"]
+      recipients: ["email@example.com"]
+    
+    weekly:
+      enabled: true
+      day: "Friday"
+      time: "17:00"
+      format: ["pdf", "excel"]
+    
+    monthly:
+      enabled: true
+      day: 1               # 每月1号
+      format: ["pdf"]
+  
+  # 数据导出
+  export:
+    formats:
+      - type: "excel"
+        sheets: ["持仓", "交易记录", "收益分析", "风险指标"]
+      - type: "csv"
+        encoding: "utf-8"
+        separator: ","
+      - type: "json"
+        pretty_print: true
+    
+    storage:
+      local_path: "./exports/"
+      cloud_backup: false
+      retention_days: 365
+
+# =====================================================
+# 8. 系统配置
+# =====================================================
+system:
+  # 日志配置
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file: "logs/etf_strategy.log"
+    rotation: "daily"
+    retention: 30          # 保留30天
+  
+  # 数据库配置
+  database:
+    type: "postgresql"     # postgresql/mysql/sqlite
+    host: "localhost"
+    port: 5432
+    name: "etf_strategy"
+    user: "postgres"
+    password: "password"
+    pool_size: 10
+  
+  # 缓存配置
+  cache:
+    type: "redis"
+    host: "localhost"
+    port: 6379
+    db: 0
+    ttl: 3600             # 默认1小时
+  
+  # 性能配置
+  performance:
+    max_workers: 4        # 最大工作线程
+    batch_size: 100       # 批处理大小
+    timeout: 300          # 超时时间（秒）
+    memory_limit: "2G"    # 内存限制
+
+# =====================================================
+# 9. 环境变量
+# =====================================================
+environment:
+  DEBUG: false
+  ENVIRONMENT: "production"  # development/testing/production
+  TIMEZONE: "Asia/Shanghai"
+  LOCALE: "zh_CN"
+
+# =====================================================
+# 文件结束
+# =====================================================
