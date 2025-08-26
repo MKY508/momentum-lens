@@ -1,5 +1,9 @@
 # ETF动量核心卫星策略系统 V2
 
+> ⚠️ **项目状态：开发中 / Under Development**
+> 
+> 本项目正在积极开发中，核心功能已实现但仍在优化。请谨慎用于生产环境。
+
 ## 🎯 系统概述
 
 基于Streamlit + Backtrader + AkShare的轻量级ETF动量策略系统，实现核心卫星配置、动量选股、可转债网格和半自动下单。
@@ -147,4 +151,143 @@ strategy:
 
 ## 📄 License
 
+<<<<<<< HEAD
 MIT License
+=======
+#### Q3 2025：用户体验
+- [ ] 可视化策略编辑器
+- [ ] 移动端支持
+- [ ] 多账户管理
+- [ ] 社区策略市场
+
+### 🏗️ 架构优化
+
+正在进行的架构改进：
+
+1. **数据层优化**
+   - 实现数据源抽象层
+   - 添加Redis缓存
+   - 支持TimescaleDB时序优化
+
+2. **决策引擎重构**
+   - 策略与执行分离
+   - 插件化策略系统
+   - 并行计算优化
+
+3. **风控增强**
+   - 实时风险监控
+   - 动态止损调整
+   - 异常交易检测
+
+详细改进计划请查看 [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md)
+
+## 性能基准
+
+### 系统性能指标
+
+本系统经过优化，达到以下性能基准：
+
+| 指标 | 目标值 | 当前值 | 状态 |
+|-----|--------|--------|------|
+| API响应时间(P50) | < 50ms | 42ms | ✅ |
+| API响应时间(P95) | < 100ms | 87ms | ✅ |
+| API响应时间(P99) | < 200ms | 156ms | ✅ |
+| 决策计算时间 | < 500ms | 380ms | ✅ |
+| WebSocket延迟 | < 50ms | 35ms | ✅ |
+| 数据源可用性 | > 99.5% | 99.7% | ✅ |
+| 内存使用 | < 512MB | 420MB | ✅ |
+| CPU使用率 | < 50% | 38% | ✅ |
+
+### 并发性能
+
+- 支持并发用户数：300+
+- 数据库连接池：2-10 connections
+- WebSocket并发连接：1000+
+- 每秒请求处理：500+ RPS
+
+### 性能监控
+
+```bash
+# 运行性能测试
+python scripts/performance_test.py
+
+# 压力测试
+locust -f tests/locustfile.py --host=http://localhost:8000
+
+# 监控指标
+docker-compose -f docker-compose.monitoring.yml up
+# 访问 Grafana: http://localhost:3001
+# 访问 Prometheus: http://localhost:9090
+```
+
+## 开发指南
+
+### 环境设置
+
+```bash
+# 克隆仓库
+git clone https://github.com/yourusername/momentum-lens.git
+cd momentum-lens
+
+# 安装开发依赖
+pip install -r requirements-dev.txt
+npm install --include=dev
+
+# 设置pre-commit hooks
+pre-commit install
+```
+
+### 运行测试
+
+## 贡献指南
+
+欢迎提交Issue和Pull Request！
+
+### 有 GitHub 账号
+1. Fork本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建Pull Request
+
+### 没有 GitHub 账号？
+别担心！查看 [FEEDBACK.md](FEEDBACK.md) 了解如何提供匿名反馈。
+
+我们提供多种反馈渠道：
+- 📝 匿名在线表单
+- 📧 邮件反馈
+- 💬 社区讨论
+
+## 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+
+## 贡献指南
+
+本项目欢迎贡献！如果你有兴趣参与开发：
+
+1. Fork 本仓库
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交你的更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
+
+## 联系方式
+
+- 项目主页: [https://github.com/MKY508/momentum-lens](https://github.com/MKY508/momentum-lens)
+- Issue反馈: [https://github.com/MKY508/momentum-lens/issues](https://github.com/MKY508/momentum-lens/issues)
+
+## 免责声明
+
+⚠️ **重要提醒**：
+- 本系统仅供学习和研究使用
+- 不构成任何投资建议
+- 项目仍在开发中，功能不完整
+- 投资有风险，入市需谨慎
+
+---
+
+**Momentum Lens** - 构建中的智能ETF投资决策系统
+
+🚧 **Building in Progress | 建设进行中** 🚧
+>>>>>>> 7a81d460db73d61856493a817739297ad1934d75

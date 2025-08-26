@@ -4,10 +4,35 @@ All parameters can be adjusted from the frontend.
 """
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field, validator
 from enum import Enum
 import json
 import os
+
+# Provide minimal fallbacks when pydantic is unavailable
+try:
+    from pydantic import BaseModel, Field, validator
+except ModuleNotFoundError:  # pragma: no cover - fallback for limited env
+    class BaseModel:  # type: ignore
+        """Simple stand-in for pydantic.BaseModel"""
+
+        def __init__(self, **data: Any) -> None:
+            for name, value in self.__class__.__dict__.items():
+                if (
+                    not name.startswith("_")
+                    and not callable(value)
+                    and not isinstance(value, property)
+                ):
+                    setattr(self, name, value)
+            for key, value in data.items():
+                setattr(self, key, value)
+
+    def Field(default=None, description: str | None = None):  # type: ignore
+        return default
+
+    def validator(field_name: str):  # type: ignore
+        def decorator(func):
+            return func
+        return decorator
 
 
 class TradingPreset(str, Enum):
