@@ -1,0 +1,63 @@
+# ETF动量策略配置文件
+
+# 策略参数
+strategy:
+  # Core-Satellite配置
+  core_ratio: 0.4          # Core资产占比
+  satellite_ratio: 0.3     # 卫星资产占比
+  cb_ratio: 0.1           # 可转债占比
+  cash_ratio: 0.2         # 现金占比
+  
+  # 动量参数
+  momentum:
+    r60_weight: 0.6       # 3个月动量权重
+    r120_weight: 0.4      # 6个月动量权重
+    lookback_days: 252    # 回看天数
+    top_n: 2              # 选择Top N
+    
+  # 相关性参数
+  correlation:
+    max_corr: 0.8         # 最大相关系数
+    lookback_days: 90     # 相关性计算天数
+    
+  # 资格检查
+  qualification:
+    min_turnover: 50000000    # 最小成交额(5000万)
+    max_premium: 0.02         # 最大IOPV溢价率(2%)
+    min_holding_days: 14      # 最短持有天数
+    buffer_rate: 0.03         # 缓冲率(3%)
+    
+  # 风控参数  
+  risk:
+    default_stop_loss: -0.12      # 默认止损(-12%)
+    sideways_stop_loss: -0.15    # 震荡市止损(-15%)
+    trending_stop_loss: -0.10    # 趋势市止损(-10%)
+    
+# 可转债参数
+convertible_bond:
+  # 评分权重
+  weights:
+    size: 0.2            # 规模权重
+    premium: 0.3         # 溢价率权重
+    maturity: 0.15       # 剩余年限权重
+    rating: 0.15         # 评级权重
+    put_call: 0.1        # 回售赎回权重
+    volatility: 0.05     # 波动率权重
+    liquidity: 0.05      # 流动性权重
+    
+  # 筛选条件
+  filters:
+    min_size: 300000000      # 最小规模(3亿)
+    max_premium: 0.3         # 最大溢价率(30%)
+    min_rating: 'AA-'        # 最低评级
+    
+# 交易时间配置
+trading:
+  tuesday_morning: "10:30"   # 周二上午
+  tuesday_afternoon: "14:00" # 周二下午
+  
+# 数据源配置
+data:
+  cache_hours: 1           # 缓存时间(小时)
+  retry_times: 3          # 重试次数
+  timeout: 30             # 超时时间(秒)

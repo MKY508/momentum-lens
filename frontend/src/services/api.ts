@@ -1,164 +1,90 @@
-import axios, { AxiosInstance } from 'axios';
-import {
-  Decision,
-  MarketIndicator,
-  Holding,
-  MomentumETF,
-  TradeLog,
-  Alert,
-  PerformanceMetrics,
-  Settings,
-  PriceUpdate,
-  CorrelationMatrix,
-  DCASchedule,
-  ParameterPreset
-} from '../types';
+import axios from 'axios'
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-// Create axios instance with default config
-const axiosInstance: AxiosInstance = axios.create({
-  baseURL: API_BASE,
-  timeout: 30000,
+const api = axios.create({
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-});
+})
 
-// Request interceptor for auth token
-axiosInstance.interceptors.request.use(
+// Request interceptor
+api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('auth_token');
+    // Add auth token if exists
+    const token = localStorage.getItem('token')
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers.Authorization = `Bearer ${token}`
     }
-    return config;
+    return config
   },
-  (error) => Promise.reject(error)
-);
+  (error) => {
+    return Promise.reject(error)
+  }
+)
 
-// Response interceptor for error handling
-axiosInstance.interceptors.response.use(
-  (response) => response.data,
+// Response interceptor
+api.interceptors.response.use(
+  (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized access
-      localStorage.removeItem('auth_token');
-      window.location.href = '/login';
+      // Handle unauthorized
+      localStorage.removeItem('token')
+      window.location.href = '/login'
     }
-    return Promise.reject(error);
+    return Promise.reject(error)
   }
-);
+)
 
-export const api = {
-  // Decision endpoints
-  decisions: {
-    calculate: (params?: Partial<ParameterPreset>): Promise<Decision> =>
-      axiosInstance.post('/api/decisions/calculate', params),
-    getCurrent: (): Promise<Decision> =>
-      axiosInstance.get('/api/decisions/current'),
-    getHistory: (limit = 10): Promise<Decision[]> =>
-      axiosInstance.get('/api/decisions/history', { params: { limit } }),
+// Market APIs
+export const marketAPI = {
+  getEnvironment: () => api.get('/api/market/environment'),
+}
+
+// Decision APIs
+export const decisionAPI = {
+  generate: () => api.post('/api/decisions/generate'),
+  getSatelliteSelections: (topN: number = 2) => 
+    api.get(`/api/decisions/satellite?top_n=${topN}`),
+}
+
+// Portfolio APIs
+export const portfolioAPI = {
+  getSummary: () => api.get('/api/portfolio/summary'),
+  getPositions: () => api.get('/api/portfolio/positions'),
+  updatePrices: (prices: Record<string, number>) => 
+    api.post('/api/portfolio/update-prices', { prices }),
+  generateRebalance: (threshold: number = 0.02, dryRun: boolean = true) =>
+    api.post('/api/portfolio/rebalance', { threshold, dry_run: dryRun }),
+  executeDCA: (week: number) => 
+    api.post('/api/portfolio/dca', { week }),
+  checkRisks: () => api.get('/api/portfolio/risks'),
+}
+
+// Data APIs
+export const dataAPI = {
+  getETFList: (minTurnover: number = 50_000_000) =>
+    api.get(`/api/data/etfs?min_turnover=${minTurnover}`),
+  getETFPrice: (code: string, days: number = 30) =>
+    api.get(`/api/data/etf/${code}/price?days=${days}`),
+  getETFIOPV: (code: string) =>
+    api.get(`/api/data/etf/${code}/iopv`),
+  getConvertibles: () =>
+    api.get('/api/data/convertibles'),
+}
+
+// Momentum APIs
+export const momentumAPI = {
+  getRanking: (topN: number = 20) =>
+    api.get(`/api/momentum/ranking?top_n=${topN}`),
+}
+
+// Export APIs
+export const exportAPI = {
+  downloadOrdersCSV: () => {
+    window.open(`${API_BASE_URL}/api/export/orders/csv`, '_blank')
   },
+}
 
-  // Market data endpoints
-  market: {
-    getIndicators: (): Promise<MarketIndicator> =>
-      axiosInstance.get('/api/market/indicators'),
-    getETFPrices: (codes: string[]): Promise<PriceUpdate[]> =>
-      axiosInstance.get('/api/market/etf-prices', { params: { codes: codes.join(',') } }),
-    getMomentumRankings: (): Promise<MomentumETF[]> =>
-      axiosInstance.get('/api/market/momentum-rankings-adjusted'),
-    getMomentumRankingsRaw: (): Promise<MomentumETF[]> =>
-      axiosInstance.get('/api/market/momentum-rankings'),
-    getCorrelationMatrix: (anchor: string): Promise<CorrelationMatrix> =>
-      axiosInstance.get('/api/market/correlation', { params: { anchor } }),
-    getHS300Chart: (period = '1Y'): Promise<any> =>
-      axiosInstance.get('/api/market/hs300-chart', { params: { period } }),
-    
-    // Data source endpoints
-    testDataSource: (sourceId: string, apiKey?: string): Promise<{ success: boolean; latency?: number; message?: string }> =>
-      axiosInstance.post('/api/market/test-source', { sourceId, apiKey }),
-    fetchFromSource: (sourceId: string, symbol: string, apiKey?: string): Promise<{ data: any }> =>
-      axiosInstance.post('/api/market/fetch', { sourceId, symbol, apiKey }),
-    fetchBatch: (sourceId: string, symbols: string[]): Promise<{ data: Record<string, any> }> =>
-      axiosInstance.post('/api/market/fetch-batch', { sourceId, symbols }),
-    getDataSources: (): Promise<{ sources: any[]; active: string; auto_refresh: boolean; refresh_interval: number }> =>
-      axiosInstance.get('/api/market/data-sources'),
-    setDataSource: (sourceId: string): Promise<{ success: boolean; active: string; message: string }> =>
-      axiosInstance.post('/api/market/set-source', { sourceId }),
-    refreshData: (): Promise<{ success: boolean; message: string; timestamp: string }> =>
-      axiosInstance.post('/api/market/refresh'),
-    setAutoRefresh: (enabled: boolean, interval: number): Promise<{ success: boolean; enabled: boolean; interval: number; message: string }> =>
-      axiosInstance.post('/api/market/auto-refresh', { enabled, interval }),
-  },
-
-  // Portfolio endpoints
-  portfolio: {
-    getHoldings: (): Promise<Holding[]> =>
-      axiosInstance.get('/api/portfolio/holdings'),
-    updateHoldings: (holdings: Partial<Holding>[]): Promise<Holding[]> =>
-      axiosInstance.post('/api/portfolio/update', { holdings }),
-    rebalance: (): Promise<TradeLog[]> =>
-      axiosInstance.post('/api/portfolio/rebalance'),
-    getDCASchedule: (): Promise<DCASchedule> =>
-      axiosInstance.get('/api/portfolio/dca-schedule'),
-    updateDCASchedule: (schedule: Partial<DCASchedule>): Promise<DCASchedule> =>
-      axiosInstance.post('/api/portfolio/dca-schedule', schedule),
-  },
-
-  // Trading endpoints
-  trading: {
-    executeTrade: (trade: Partial<TradeLog>): Promise<TradeLog> =>
-      axiosInstance.post('/api/trading/execute', trade),
-    getTradeLogs: (filters?: any): Promise<TradeLog[]> =>
-      axiosInstance.get('/api/trading/logs', { params: filters }),
-    cancelOrder: (orderId: string): Promise<void> =>
-      axiosInstance.post(`/api/trading/cancel/${orderId}`),
-    exportTrades: (format: 'csv' | 'pdf'): Promise<Blob> =>
-      axiosInstance.get('/api/trading/export', {
-        params: { format },
-        responseType: 'blob',
-      }),
-  },
-
-  // Performance endpoints
-  performance: {
-    getMetrics: (): Promise<PerformanceMetrics> =>
-      axiosInstance.get('/api/performance/metrics'),
-    getDrawdownChart: (): Promise<any> =>
-      axiosInstance.get('/api/performance/drawdown'),
-    getReturnsChart: (period = '1Y'): Promise<any> =>
-      axiosInstance.get('/api/performance/returns', { params: { period } }),
-  },
-
-  // Alert endpoints
-  alerts: {
-    getAlerts: (unreadOnly = false): Promise<Alert[]> =>
-      axiosInstance.get('/api/alerts', { params: { unreadOnly } }),
-    markAsRead: (alertId: string): Promise<void> =>
-      axiosInstance.patch(`/api/alerts/${alertId}/read`),
-    clearAll: (): Promise<void> =>
-      axiosInstance.delete('/api/alerts'),
-  },
-
-  // Configuration endpoints
-  config: {
-    getSettings: (): Promise<Settings> =>
-      axiosInstance.get('/api/config/settings'),
-    updateSettings: (settings: Partial<Settings>): Promise<Settings> =>
-      axiosInstance.post('/api/config/settings', settings),
-    getPresets: (): Promise<ParameterPreset[]> =>
-      axiosInstance.get('/api/config/presets'),
-    saveCustomPreset: (preset: ParameterPreset): Promise<ParameterPreset> =>
-      axiosInstance.post('/api/config/presets', preset),
-  },
-
-  // Health check
-  health: {
-    check: (): Promise<{ status: string; timestamp: string }> =>
-      axiosInstance.get('/api/health'),
-  },
-};
-
-export default api;
+export default api
