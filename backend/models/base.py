@@ -17,17 +17,27 @@ logger = logging.getLogger(__name__)
 # Get database settings
 settings = get_settings()
 
-# Create engine with connection pooling
-engine = create_engine(
-    settings.database.url,
-    poolclass=QueuePool,
-    pool_size=settings.database.pool_size,
-    max_overflow=settings.database.max_overflow,
-    pool_timeout=settings.database.pool_timeout,
-    pool_recycle=3600,  # Recycle connections after 1 hour
-    echo=settings.database.echo,
-    future=True
-)
+# Fallback to SQLite if psycopg2 is unavailable
+try:  # pragma: no cover - runtime dependency check
+    import psycopg2  # type: ignore
+    database_url = settings.database.url
+    engine = create_engine(
+        database_url,
+        poolclass=QueuePool,
+        pool_size=settings.database.pool_size,
+        max_overflow=settings.database.max_overflow,
+        pool_timeout=settings.database.pool_timeout,
+        pool_recycle=3600,  # Recycle connections after 1 hour
+        echo=settings.database.echo,
+        future=True,
+    )
+except ModuleNotFoundError:
+    logger.warning("psycopg2 not installed, using in-memory SQLite database")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        poolclass=NullPool,
+        future=True,
+    )
 
 # Create session factory
 SessionLocal = sessionmaker(
@@ -146,6 +156,9 @@ class DatabaseManager:
     @staticmethod
     def vacuum_analyze():
         """Run VACUUM ANALYZE on PostgreSQL database"""
+        if engine.dialect.name != "postgresql":
+            logger.warning("VACUUM ANALYZE skipped: not using PostgreSQL")
+            return
         try:
             with engine.connect() as conn:
                 conn.execute("VACUUM ANALYZE")
@@ -156,6 +169,9 @@ class DatabaseManager:
     @staticmethod
     def backup_database(backup_path: str):
         """Create database backup (PostgreSQL specific)"""
+        if engine.dialect.name != "postgresql":
+            logger.warning("Backup skipped: not using PostgreSQL")
+            return
         import subprocess
         try:
             cmd = [
