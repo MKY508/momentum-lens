@@ -2,7 +2,6 @@
 """系统测试脚本 - 验证各个模块功能"""
 
 import sys
-import os
 import json
 import requests
 import pandas as pd
