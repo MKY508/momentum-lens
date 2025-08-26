@@ -68,6 +68,8 @@ export const api = {
     getETFPrices: (codes: string[]): Promise<PriceUpdate[]> =>
       axiosInstance.get('/api/market/etf-prices', { params: { codes: codes.join(',') } }),
     getMomentumRankings: (): Promise<MomentumETF[]> =>
+      axiosInstance.get('/api/market/momentum-rankings-adjusted'),
+    getMomentumRankingsRaw: (): Promise<MomentumETF[]> =>
       axiosInstance.get('/api/market/momentum-rankings'),
     getCorrelationMatrix: (anchor: string): Promise<CorrelationMatrix> =>
       axiosInstance.get('/api/market/correlation', { params: { anchor } }),
@@ -75,12 +77,20 @@ export const api = {
       axiosInstance.get('/api/market/hs300-chart', { params: { period } }),
     
     // Data source endpoints
-    testDataSource: (sourceId: string, apiKey?: string): Promise<{ success: boolean; latency?: number }> =>
+    testDataSource: (sourceId: string, apiKey?: string): Promise<{ success: boolean; latency?: number; message?: string }> =>
       axiosInstance.post('/api/market/test-source', { sourceId, apiKey }),
     fetchFromSource: (sourceId: string, symbol: string, apiKey?: string): Promise<{ data: any }> =>
       axiosInstance.post('/api/market/fetch', { sourceId, symbol, apiKey }),
     fetchBatch: (sourceId: string, symbols: string[]): Promise<{ data: Record<string, any> }> =>
       axiosInstance.post('/api/market/fetch-batch', { sourceId, symbols }),
+    getDataSources: (): Promise<{ sources: any[]; active: string; auto_refresh: boolean; refresh_interval: number }> =>
+      axiosInstance.get('/api/market/data-sources'),
+    setDataSource: (sourceId: string): Promise<{ success: boolean; active: string; message: string }> =>
+      axiosInstance.post('/api/market/set-source', { sourceId }),
+    refreshData: (): Promise<{ success: boolean; message: string; timestamp: string }> =>
+      axiosInstance.post('/api/market/refresh'),
+    setAutoRefresh: (enabled: boolean, interval: number): Promise<{ success: boolean; enabled: boolean; interval: number; message: string }> =>
+      axiosInstance.post('/api/market/auto-refresh', { enabled, interval }),
   },
 
   // Portfolio endpoints

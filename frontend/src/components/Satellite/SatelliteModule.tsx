@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -36,6 +36,7 @@ import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { MomentumETF, CorrelationMatrix } from '../../types';
 import { chartColors } from '../../styles/theme';
+import DataSourceControl from '../Common/DataSourceControl';
 
 interface FilterOptions {
   growth: 'none' | string;
@@ -222,7 +223,13 @@ const SatelliteModule: React.FC = () => {
         <Typography variant="h4" fontWeight={600}>
           Satellite模块
         </Typography>
-        <Box display="flex" gap={2}>
+        <Box display="flex" gap={2} alignItems="center">
+          <DataSourceControl 
+            embedded={true} 
+            onDataUpdate={() => {
+              refetchRankings();
+            }}
+          />
           <Button
             variant="contained"
             color="primary"
@@ -299,16 +306,17 @@ const SatelliteModule: React.FC = () => {
                         <TableCell align="right">成交量</TableCell>
                         <TableCell align="right">价差</TableCell>
                         <TableCell>类型</TableCell>
+                        <TableCell>分红</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredMomentumData.slice(0, 10).map((etf, index) => (
+                      {filteredMomentumData.map((etf, index) => (
                         <TableRow 
                           key={etf.code}
                           sx={{ 
-                            backgroundColor: index === 0 ? 'primary.light' : 'inherit',
+                            backgroundColor: etf.qualified && index < 5 ? 'action.hover' : 'inherit',
                             '& td': {
-                              color: index === 0 ? 'primary.contrastText' : 'inherit',
+                              fontWeight: index < 5 ? 600 : 400,
                             }
                           }}
                         >
@@ -365,6 +373,19 @@ const SatelliteModule: React.FC = () => {
                               color={etf.type === 'Growth' ? 'primary' : etf.type === 'NewEnergy' ? 'success' : 'default'}
                             />
                           </TableCell>
+                          <TableCell>
+                            {etf.has_dividend && (
+                              <Tooltip title={`分红影响: ${etf.dividend_impact?.toFixed(2)}%`}>
+                                <Chip 
+                                  label={`+${etf.dividend_impact?.toFixed(1)}%`} 
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                  sx={{ fontSize: '0.75rem' }}
+                                />
+                              </Tooltip>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -375,9 +396,14 @@ const SatelliteModule: React.FC = () => {
               )}
 
               <Box mt={2}>
-                <Typography variant="caption" color="text.secondary">
-                  动量评分 = 0.6 × 60日涨幅 + 0.4 × 120日涨幅
-                </Typography>
+                <Stack spacing={0.5}>
+                  <Typography variant="caption" color="text.secondary">
+                    动量评分 = 0.6 × 60日涨幅 + 0.4 × 120日涨幅
+                  </Typography>
+                  <Typography variant="caption" color="warning.main">
+                    ⚠️ 收益率已考虑分红调整，橙色标记表示有分红影响
+                  </Typography>
+                </Stack>
               </Box>
             </CardContent>
           </Card>

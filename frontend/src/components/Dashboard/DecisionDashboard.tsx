@@ -33,6 +33,8 @@ import toast from 'react-hot-toast';
 import api from '../../services/api';
 import { Decision, MarketIndicator, ParameterPreset } from '../../types';
 import { indicatorColors } from '../../styles/theme';
+import CoreSnapshot from './CoreSnapshot';
+import DataSourceControl from '../Common/DataSourceControl';
 
 const PARAMETER_PRESETS: ParameterPreset[] = [
   {
@@ -61,12 +63,34 @@ const PARAMETER_PRESETS: ParameterPreset[] = [
   },
 ];
 
+// Helper function to get ETF status message
+const getETFStatusMessage = (status: string): string => {
+  switch (status) {
+    case 'SUSPENDED':
+      return 'ETF已停牌，无法交易';
+    case 'MERGED':
+      return 'ETF已合并，请选择新标的';
+    case 'DELISTED':
+      return 'ETF已退市';
+    case 'NO_DATA':
+      return '无法获取数据，请稍后重试';
+    default:
+      return '状态异常';
+  }
+};
+
+// Helper function to format numbers with thousand separators
+const formatNumber = (num: number | undefined): string => {
+  if (num === undefined) return 'N/A';
+  return num.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+};
+
 const DecisionDashboard: React.FC = () => {
   const [selectedPreset, setSelectedPreset] = useState<string>('均衡');
   const [showCopiedAlert, setShowCopiedAlert] = useState(false);
 
   // Fetch market indicators
-  const { data: indicators, isLoading: indicatorsLoading } = useQuery({
+  const { data: indicators, isLoading: indicatorsLoading, refetch: refetchIndicators } = useQuery({
     queryKey: ['marketIndicators'],
     queryFn: api.market.getIndicators,
     refetchInterval: 30000, // Refresh every 30 seconds
@@ -106,12 +130,16 @@ const DecisionDashboard: React.FC = () => {
     const orderText = `
 ETF交易订单
 ================
+时间窗口:
+10:30 ${decision.firstLeg.code} ${decision.firstLeg.name} ${decision.weights.trial}% 限价 = IOPV×[0.999,1.001]
+14:00 ${decision.secondLeg.code} ${decision.secondLeg.name} ${decision.weights.trial}% 限价 = IOPV×[0.999,1.001]
+
 第一腿: ${decision.firstLeg.code} ${decision.firstLeg.name}
-动量评分: ${decision.firstLeg.score.toFixed(2)}
+动量评分: ${decision.firstLeg.score.toFixed(1)}
 权重: ${decision.weights.trial}% (试仓) / ${decision.weights.full}% (全仓)
 
 第二腿: ${decision.secondLeg.code} ${decision.secondLeg.name}
-动量评分: ${decision.secondLeg.score.toFixed(2)}
+动量评分: ${decision.secondLeg.score.toFixed(1)}
 权重: ${decision.weights.trial}% (试仓) / ${decision.weights.full}% (全仓)
 
 IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
@@ -213,6 +241,14 @@ IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
           决策台
         </Typography>
         <Box display="flex" gap={2} alignItems="center">
+          <DataSourceControl 
+            embedded={true} 
+            onDataUpdate={() => {
+              refetchDecision();
+              refetchIndicators();
+            }}
+          />
+          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <Select
               value={selectedPreset}
@@ -239,7 +275,7 @@ IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
 
       {/* Environment Indicators */}
       <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
-        <Box display="flex" gap={2} alignItems="center">
+        <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
           <Typography variant="subtitle1" fontWeight={600}>
             市场环境：
           </Typography>
@@ -247,20 +283,43 @@ IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
             <CircularProgress size={20} />
           ) : indicators ? (
             <>
+              <Tooltip title={`收盘 ${formatNumber(indicators.yearline.value)} / MA200 ${formatNumber(indicators.yearline.ma200)}`}>
+                <Box>
+                  {renderIndicatorChip(
+                    '年线',
+                    indicators.yearline.status === 'ABOVE' ? 'positive' : 'negative',
+                    `${indicators.yearline.status === 'ABOVE' ? '在上' : '在下'} (${indicators.yearline.deviation ? `${indicators.yearline.deviation > 0 ? '+' : ''}${indicators.yearline.deviation.toFixed(1)}%` : 'N/A'})`
+                  )}
+                </Box>
+              </Tooltip>
               {renderIndicatorChip(
-                '年线',
-                indicators.yearline.status === 'ABOVE' ? 'positive' : 'negative',
-                indicators.yearline.status
-              )}
-              {renderIndicatorChip(
-                '波动率',
+                'ATR20/价',
                 indicators.atr.status === 'LOW' ? 'positive' : indicators.atr.status === 'HIGH' ? 'negative' : 'neutral',
-                indicators.atr.value.toFixed(2)
+                `${indicators.atr.value.toFixed(1)}%`
               )}
-              {renderIndicatorChip(
-                '震荡',
-                indicators.chop.status === 'TRENDING' ? 'positive' : 'neutral',
-                indicators.chop.value.toFixed(2)
+              <Tooltip title={`3选2准则: ${indicators.chop.inBandDays || 0}/30天带内 | ATR/价${indicators.atr.value.toFixed(1)}% | CHOP=${indicators.chop.status === 'CHOPPY' ? 'ON' : 'OFF'}`}>
+                <Box>
+                  {renderIndicatorChip(
+                    'CHOP',
+                    indicators.chop.status === 'TRENDING' ? 'positive' : 'neutral',
+                    `带内 ${indicators.chop.inBandDays || 0}/30 | CHOP=${indicators.chop.status === 'CHOPPY' ? 'ON' : 'OFF'}`
+                  )}
+                </Box>
+              </Tooltip>
+              {indicators.chop.status === 'CHOPPY' && (
+                <Tooltip title="震荡市条件：带内天数>50% ✓ ATR/价<2.5% ✓">
+                  <Chip
+                    label="震荡: ON"
+                    color="warning"
+                    size="small"
+                    icon={<InfoIcon />}
+                    sx={{
+                      fontWeight: 600,
+                      backgroundColor: indicatorColors.chopChoppy,
+                      color: 'white',
+                    }}
+                  />
+                </Tooltip>
               )}
             </>
           ) : null}
@@ -295,12 +354,27 @@ IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
                         <Typography variant="body2" color="text.secondary">
                           {decision.firstLeg.name}
                         </Typography>
+                        {decision.firstLeg.status && decision.firstLeg.status !== 'NORMAL' && (
+                          <Alert severity="error" sx={{ mt: 1 }}>
+                            {decision.firstLeg.statusMessage || getETFStatusMessage(decision.firstLeg.status)}
+                            <Button disabled sx={{ ml: 1 }}>不可下单</Button>
+                          </Alert>
+                        )}
                       </Box>
-                      <Chip 
-                        label={`评分: ${decision.firstLeg.score.toFixed(2)}`}
-                        color="primary"
-                        size="small"
-                      />
+                      <Box display="flex" flexDirection="column" alignItems="flex-end" gap={1}>
+                        <Chip 
+                          label={`评分: ${decision.firstLeg.score.toFixed(1)}`}
+                          color="primary"
+                          size="small"
+                        />
+                        {decision.firstLeg.status && decision.firstLeg.status !== 'NORMAL' && (
+                          <Chip 
+                            label={decision.firstLeg.status}
+                            color="error"
+                            size="small"
+                          />
+                        )}
+                      </Box>
                     </Box>
                   </Paper>
                 </Box>
@@ -318,12 +392,27 @@ IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
                         <Typography variant="body2" color="text.secondary">
                           {decision.secondLeg.name}
                         </Typography>
+                        {decision.secondLeg.status && decision.secondLeg.status !== 'NORMAL' && (
+                          <Alert severity="error" sx={{ mt: 1 }}>
+                            {decision.secondLeg.statusMessage || getETFStatusMessage(decision.secondLeg.status)}
+                            <Button disabled sx={{ ml: 1 }}>不可下单</Button>
+                          </Alert>
+                        )}
                       </Box>
-                      <Chip 
-                        label={`评分: ${decision.secondLeg.score.toFixed(2)}`}
-                        color="primary"
-                        size="small"
-                      />
+                      <Box display="flex" flexDirection="column" alignItems="flex-end" gap={1}>
+                        <Chip 
+                          label={`评分: ${decision.secondLeg.score.toFixed(1)}`}
+                          color="primary"
+                          size="small"
+                        />
+                        {decision.secondLeg.status && decision.secondLeg.status !== 'NORMAL' && (
+                          <Chip 
+                            label={decision.secondLeg.status}
+                            color="error"
+                            size="small"
+                          />
+                        )}
+                      </Box>
                     </Box>
                   </Paper>
                 </Box>
@@ -359,49 +448,94 @@ IOPV区间: [${decision.iopvBands.lower}, ${decision.iopvBands.upper}]
 
               {/* Right Column - Qualifications */}
               <Grid item xs={12} md={5}>
+                {/* Core 快照 - 放在QDII状态上方 */}
+                <Box mb={3}>
+                  <CoreSnapshot 
+                    yearline={indicators?.yearline}
+                    qdiiStatus={decision.qdiiStatus}
+                  />
+                </Box>
+                
                 <Typography variant="h6" gutterBottom fontWeight={600}>
                   资格状态
                 </Typography>
 
                 <Stack spacing={2} mb={3}>
-                  {renderQualificationLight(decision.qualifications.buffer, '缓冲区要求')}
-                  {renderQualificationLight(decision.qualifications.minHolding, '最短持有期')}
-                  {renderQualificationLight(decision.qualifications.correlation, '相关系数 ≤ 0.8')}
-                  {renderQualificationLight(decision.qualifications.legLimit, '腿数限制要求')}
+                  {renderQualificationLight(
+                    decision.qualifications.buffer, 
+                    decision.qualifications.bufferValue && decision.qualifications.bufferThreshold
+                      ? `Buffer: ${decision.qualifications.bufferValue > 0 ? '+' : ''}${decision.qualifications.bufferValue.toFixed(1)}% ≥ ${decision.qualifications.bufferThreshold.toFixed(0)}% ✓`
+                      : '缓冲区要求'
+                  )}
+                  {renderQualificationLight(
+                    decision.qualifications.minHolding, 
+                    decision.qualifications.minHoldingDays && decision.qualifications.minHoldingRequired
+                      ? `Min holding: 已满 ${decision.qualifications.minHoldingDays}/${decision.qualifications.minHoldingRequired} 天 ✓`
+                      : '最短持有期'
+                  )}
+                  {renderQualificationLight(
+                    decision.qualifications.correlation, 
+                    decision.qualifications.correlationValue && decision.qualifications.correlationThreshold
+                      ? `Correlation: ρ(Top1,候选)=${decision.qualifications.correlationValue.toFixed(2)} ≤ ${decision.qualifications.correlationThreshold.toFixed(1)} ✓`
+                      : '相关系数 ≤ 0.8'
+                  )}
+                  {renderQualificationLight(
+                    decision.qualifications.legLimit, 
+                    decision.qualifications.currentLegs !== undefined && decision.qualifications.maxLegs
+                      ? `Leg limit: 年线上，允许 ${decision.qualifications.maxLegs} 条 ✓`
+                      : '腿数限制要求'
+                  )}
                 </Stack>
 
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    QDII状态（标普500）
+                    QDII状态
                   </Typography>
                   <Paper 
                     variant="outlined" 
                     sx={{ 
                       p: 2,
-                      backgroundColor: decision.qdiiStatus.status === 'OK' 
-                        ? 'success.light' 
-                        : decision.qdiiStatus.status === 'WARNING'
-                        ? 'warning.light'
-                        : 'error.light',
-                      opacity: 0.1
+                      backgroundColor: decision.qdiiStatus.premium <= 2 
+                        ? 'rgba(76, 175, 80, 0.1)' 
+                        : decision.qdiiStatus.premium >= 3
+                        ? 'rgba(244, 67, 54, 0.1)'
+                        : 'rgba(255, 152, 0, 0.1)'
                     }}
                   >
-                    <Box display="flex" justifyContent="space-between" alignItems="center">
-                      <Typography variant="body2">
-                        溢价率: {decision.qdiiStatus.premium.toFixed(2)}%
+                    <Stack spacing={1}>
+                      <Box display="flex" justifyContent="space-between" alignItems="center">
+                        <Typography variant="body2" fontWeight={600}>
+                          标普500 溢价 {decision.qdiiStatus.premium.toFixed(1)}%
+                        </Typography>
+                        <Chip
+                          label={
+                            decision.qdiiStatus.premium <= 2 
+                              ? `(≤2% 可买)` 
+                              : decision.qdiiStatus.premium >= 3
+                              ? `(≥3% 暂停，停放 511990)`
+                              : '(观察中)'
+                          }
+                          color={
+                            decision.qdiiStatus.premium <= 2 
+                              ? 'success' 
+                              : decision.qdiiStatus.premium >= 3
+                              ? 'error'
+                              : 'warning'
+                          }
+                          size="small"
+                        />
+                      </Box>
+                      {decision.qdiiStatus.premium >= 3 && (
+                        <Alert severity="warning" sx={{ py: 0.5 }}>
+                          <Typography variant="caption">
+                            {decision.qdiiStatus.premium.toFixed(1)}% (≥3% 暂停，停放 511990)
+                          </Typography>
+                        </Alert>
+                      )}
+                      <Typography variant="caption" color="text.secondary">
+                        买入阈值: ≤2% | 暂停阈值: ≥3%
                       </Typography>
-                      <Chip
-                        label={decision.qdiiStatus.status}
-                        color={
-                          decision.qdiiStatus.status === 'OK' 
-                            ? 'success' 
-                            : decision.qdiiStatus.status === 'WARNING'
-                            ? 'warning'
-                            : 'error'
-                        }
-                        size="small"
-                      />
-                    </Box>
+                    </Stack>
                   </Paper>
                 </Box>
 

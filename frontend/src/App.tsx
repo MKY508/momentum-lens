@@ -100,17 +100,43 @@ interface AppContentProps {
 const AppContent: React.FC<AppContentProps> = ({ isDarkMode, toggleDarkMode }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useMediaQuery('(max-width:600px)');
 
   useEffect(() => {
-    // Connect to WebSocket
-    webSocketService.connect();
+    // Initial loading
+    const initializeApp = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Connect to WebSocket
+        await webSocketService.connect();
+        
+        // Simulate API health check
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/health`);
+        if (!response.ok) {
+          throw new Error('Backend API is not responding');
+        }
+        
+        setIsLoading(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to initialize application');
+        setIsLoading(false);
+      }
+    };
+    
+    initializeApp();
 
     // Subscribe to alerts
-    const unsubscribeAlert = webSocketService.on('alert', (alert) => {
+    const unsubscribeAlert = webSocketService.on('alert', (alertData: any) => {
       setNotifications((prev) => prev + 1);
+      // Show alert using Alert component
+      setError(`New alert: ${alertData.message}`);
+      setTimeout(() => setError(null), 5000); // Auto-dismiss after 5 seconds
     });
 
     return () => {
@@ -247,6 +273,26 @@ const AppContent: React.FC<AppContentProps> = ({ isDarkMode, toggleDarkMode }) =
           mt: 8,
         }}
       >
+        {/* Loading Indicator */}
+        {isLoading && (
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
+            <CircularProgress size={60} />
+          </Box>
+        )}
+        
+        {/* Error Alert */}
+        {error && !isLoading && (
+          <Alert 
+            severity="error" 
+            onClose={() => setError(null)}
+            sx={{ mb: 2 }}
+          >
+            {error}
+          </Alert>
+        )}
+        
+        {/* Main Routes - Only show when not loading */}
+        {!isLoading && (
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DecisionDashboard />} />
@@ -257,6 +303,7 @@ const AppContent: React.FC<AppContentProps> = ({ isDarkMode, toggleDarkMode }) =
           <Route path="/api-test" element={<APITest />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        )}
       </Box>
     </Box>
   );

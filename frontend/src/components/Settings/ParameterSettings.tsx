@@ -32,13 +32,15 @@ import {
   Api as ApiIcon,
   Settings as SettingsIcon,
   Dashboard as DashboardIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
-import { Settings, ParameterPreset } from '../../types';
+import { Settings, ParameterPreset, MarketIndicator } from '../../types';
 import APIConfiguration from './APIConfiguration';
 import APIDocumentation from './APIDocumentation';
+import DataSourceControl from '../Common/DataSourceControl';
 
 const PRESET_CONFIGS: Record<string, ParameterPreset> = {
   '进攻': {
@@ -126,12 +128,32 @@ const ParameterSettings: React.FC = () => {
     queryKey: ['settings'],
     queryFn: api.config.getSettings,
   });
+  
+  // Fetch market indicators to get CHOP status
+  const { data: indicators } = useQuery({
+    queryKey: ['marketIndicators'],
+    queryFn: api.market.getIndicators,
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
 
   // Update state when settings data changes
   useEffect(() => {
     if (settings) {
       setSelectedPreset(settings.preset?.name || '均衡');
-      setCustomParams(settings.preset || PRESET_CONFIGS['均衡']);
+      let params = settings.preset || PRESET_CONFIGS['均衡'];
+      
+      // If CHOP indicator shows choppy market, override certain parameters
+      const isChoppy = indicators?.chop?.status === 'CHOPPY';
+      if (isChoppy) {
+        params = {
+          ...params,
+          buffer: 4,
+          minHolding: 28,
+          bandwidth: 7,
+        };
+      }
+      
+      setCustomParams(params);
       setEtfPool({
         gaming: settings.etfPool?.gaming || '516010',
         newEnergy: settings.etfPool?.newEnergy || '516160',
@@ -139,7 +161,7 @@ const ParameterSettings: React.FC = () => {
       setNotifications(settings.notifications || { stopLoss: true, yearline: true });
       setDisplaySettings(settings.display || { darkMode: false, showCharts: true, showPremiums: true });
     }
-  }, [settings]);
+  }, [settings, indicators]);
 
   // Save settings mutation
   const saveSettingsMutation = useMutation({
@@ -179,11 +201,25 @@ const ParameterSettings: React.FC = () => {
   const handlePresetChange = (preset: string) => {
     setSelectedPreset(preset);
     if (preset !== '自定义' && PRESET_CONFIGS[preset]) {
-      setCustomParams(PRESET_CONFIGS[preset]);
+      const presetConfig = { ...PRESET_CONFIGS[preset] };
+      
+      // If in CHOP mode, override certain parameters
+      if (settings?.marketRegime === 'CHOPPY') {
+        presetConfig.buffer = 4;
+        presetConfig.minHolding = 28;
+        presetConfig.bandwidth = 7;
+      }
+      
+      setCustomParams(presetConfig);
     }
   };
 
   const handleParameterChange = (param: keyof ParameterPreset, value: number) => {
+    // Don't allow changes to locked parameters in CHOP mode
+    const isChoppy = settings?.marketRegime === 'CHOPPY';
+    if (isChoppy && (param === 'buffer' || param === 'minHolding' || param === 'bandwidth')) {
+      return;
+    }
     setCustomParams(prev => ({ ...prev, [param]: value }));
     setSelectedPreset('自定义');
   };
@@ -231,6 +267,20 @@ const ParameterSettings: React.FC = () => {
     info?: string
   ) => {
     const value = customParams[param] as number;
+    const isChoppy = settings?.marketRegime === 'CHOPPY';
+    
+    // Determine if this parameter should be locked in CHOP mode
+    const isLocked = isChoppy && 
+      (param === 'buffer' || 
+       param === 'minHolding' || 
+       param === 'bandwidth');
+    
+    // Override values in CHOP mode for locked parameters
+    const displayValue = isChoppy ? 
+      (param === 'buffer' ? 4 : 
+       param === 'minHolding' ? 28 : 
+       param === 'bandwidth' ? 7 : 
+       value) : value;
     
     return (
       <Box mb={3}>
@@ -244,20 +294,39 @@ const ParameterSettings: React.FC = () => {
                 <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
               </Tooltip>
             )}
+            {isLocked && (
+              <Tooltip title="震荡市模式下自动锁定">
+                <LockIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+              </Tooltip>
+            )}
           </Box>
-          <Typography variant="body2" fontWeight={600}>
-            {value}{unit}
+          <Typography variant="body2" fontWeight={600} color={isLocked ? 'warning.main' : 'text.primary'}>
+            {displayValue}{unit}
           </Typography>
         </Box>
         <Slider
-          value={value}
-          onChange={(e, v) => handleParameterChange(param, v as number)}
+          value={displayValue}
+          onChange={(e, v) => !isLocked && handleParameterChange(param, v as number)}
           min={min}
           max={max}
           step={step}
           marks
+          disabled={isLocked}
           valueLabelDisplay="auto"
           valueLabelFormat={(v) => `${v}${unit}`}
+          sx={{
+            ...(isLocked && {
+              '& .MuiSlider-thumb': {
+                backgroundColor: 'warning.main',
+              },
+              '& .MuiSlider-track': {
+                backgroundColor: 'warning.main',
+              },
+              '& .MuiSlider-rail': {
+                opacity: 0.5,
+              },
+            }),
+          }}
         />
       </Box>
     );
@@ -267,9 +336,17 @@ const ParameterSettings: React.FC = () => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" fontWeight={600}>
-          参数设置
-        </Typography>
+        <Box display="flex" alignItems="center" gap={1}>
+          <DashboardIcon color="primary" />
+          <Typography variant="h4" fontWeight={600}>
+            参数设置
+          </Typography>
+          {hasChanges && (
+            <Tooltip title="您有未保存的更改">
+              <WarningIcon color="warning" />
+            </Tooltip>
+          )}
+        </Box>
         {tabValue === 0 && (
           <Box display="flex" gap={2}>
             <Button
@@ -296,6 +373,7 @@ const ParameterSettings: React.FC = () => {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tabValue} onChange={handleTabChange} aria-label="settings tabs">
           <Tab icon={<SettingsIcon />} label="参数配置" />
+          <Tab icon={<DashboardIcon />} label="数据源" />
           <Tab icon={<ApiIcon />} label="API配置" />
           <Tab icon={<InfoIcon />} label="文档说明" />
         </Tabs>
@@ -306,6 +384,33 @@ const ParameterSettings: React.FC = () => {
         {hasChanges && (
           <Alert severity="warning" sx={{ mb: 3 }}>
             您有未保存的更改。请点击"保存设置"以应用更改。
+          </Alert>
+        )}
+        
+        {/* Global CHOP Warning */}
+        {settings?.marketRegime === 'CHOPPY' && (
+          <Alert 
+            severity="warning" 
+            sx={{ 
+              mb: 3,
+              backgroundColor: 'rgba(255, 193, 7, 0.1)',
+              border: '1px solid',
+              borderColor: 'warning.main',
+            }}
+            icon={<LockIcon />}
+          >
+            <Typography variant="subtitle1" fontWeight={600}>
+              震荡保护模式已启用
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              市场处于震荡状态（CHOP=ON，带内天数: {indicators?.chop?.inBandDays || 0}/30天），以下参数已自动锁定以保护资金安全：
+            </Typography>
+            <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+              <li>缓冲区锁定为 4%</li>
+              <li>最短持有期锁定为 28天</li>
+              <li>带宽锁定为 ±7pp</li>
+              <li>腿数限制为 1条</li>
+            </Box>
           </Alert>
         )}
 
@@ -344,9 +449,31 @@ const ParameterSettings: React.FC = () => {
 
               <Divider sx={{ my: 3 }} />
 
+              {/* CHOP Mode Alert */}
+              {settings?.marketRegime === 'CHOPPY' && (
+                <Alert 
+                  severity="warning" 
+                  sx={{ 
+                    mb: 3,
+                    backgroundColor: 'warning.light',
+                    '& .MuiAlert-icon': {
+                      color: 'warning.main',
+                    },
+                  }}
+                  icon={<LockIcon />}
+                >
+                  <Typography variant="subtitle2" gutterBottom fontWeight={600}>
+                    震荡保护已启用 - 参数已自动锁定
+                  </Typography>
+                  <Typography variant="caption">
+                    以下参数已自动锁定：缓冲区 4% | 最短持有期 28天 | 带宽 ±7pp | 腿数限制 1条
+                  </Typography>
+                </Alert>
+              )}
+              
               {/* Custom Parameters */}
               {renderParameterSlider(
-                '止损',
+                '止损阈值',
                 'stopLoss',
                 5,
                 20,
@@ -362,27 +489,27 @@ const ParameterSettings: React.FC = () => {
                 5,
                 0.5,
                 '%',
-                '限价单执行时的价格缓冲区间'
+                '动量分数差值阈值，防止频繁换仓（震荡市锁定为4%）'
               )}
 
               {renderParameterSlider(
-                '最短持有期',
+                '最短持有期（天）',
                 'minHolding',
                 7,
                 60,
                 7,
-                ' 天',
-                '持仓不轮动的最短天数要求'
+                '天',
+                '持仓不轮动的最短天数要求（震荡市锁定为28天）'
               )}
 
               {renderParameterSlider(
-                '再平衡带宽',
+                '带宽',
                 'bandwidth',
                 3,
                 10,
                 1,
                 'pp',
-                '触发再平衡操作的偏差带宽'
+                '触发再平衡操作的偏差带宽（震荡市锁定为±7pp）'
               )}
 
               {renderParameterSlider(
@@ -548,12 +675,18 @@ const ParameterSettings: React.FC = () => {
       </TabPanel>
 
       {/* API Configuration Tab */}
+      {/* Data Source Tab */}
       <TabPanel value={tabValue} index={1}>
+        <DataSourceControl embedded={false} />
+      </TabPanel>
+
+      {/* API Configuration Tab */}
+      <TabPanel value={tabValue} index={2}>
         <APIConfiguration />
       </TabPanel>
 
       {/* Documentation Tab */}
-      <TabPanel value={tabValue} index={2}>
+      <TabPanel value={tabValue} index={3}>
         <APIDocumentation />
       </TabPanel>
     </Box>

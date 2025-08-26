@@ -1,0 +1,63 @@
+# A股ETF动量核心卫星策略配置文件
+
+# 资金配置
+capital: 200000  # 总资金量
+dca_weeks: 6     # 定投周数
+execution_day: "Tue"  # 执行日
+execution_windows: ["10:30", "14:00"]  # 执行时间窗口
+
+# 核心资产目标配置 (40%)
+core_target:
+  broad: 0.20        # 宽基: 510300沪深300/159919中证500
+  dividend: 0.10     # 红利: 510880红利ETF
+  bond_cash: 0.15    # 债券货币: 511990短债ETF
+  gold: 0.10         # 黄金: 518880黄金ETF
+  sp500: 0.05        # 标普500: 513500标普500ETF
+
+# 卫星资产配置 (30%)
+satellite_target: 0.30
+
+# 可转债配置 (10%)
+convertible_target: 0.10
+
+# 卫星策略规则
+satellite_rules:
+  momentum_weights:
+    r3m: 0.6   # 3月动量权重
+    r6m: 0.4   # 6月动量权重
+  min_turnover: 50_000_000  # 最小成交额
+  corr_max: 0.8             # 最大相关性
+  iopv_premium_max_domestic: 0.005  # 境内最大溢价率
+  iopv_premium_max_qdii: 0.02       # QDII最大溢价率
+  min_hold_weeks: 2         # 最小持有周数
+  buffer_pct: 0.03          # 缓冲区百分比
+  stop_loss: -0.12          # 止损线
+
+# 可转债规则
+cb_rules:
+  size_min: 500_000_000    # 最小规模
+  rating_min: "AA-"        # 最低评级
+  premium_max: 0.40        # 最大溢价率
+  term_years: [1, 5]       # 剩余期限范围
+  grid_min: 0.02           # 最小网格间距
+  grid_max: 0.05           # 最大网格间距
+  per_bond_cap: 0.015      # 单只可转债上限
+
+# 市场环境判断
+market_env_rules:
+  ma200_threshold: 0.95    # 年线阈值
+  atr20_high: 0.015        # ATR高波动阈值
+  chop_high: 70            # CHOP震荡阈值
+
+# 数据源配置
+data_source:
+  provider: "akshare"      # 数据提供商
+  cache_ttl: 300           # 缓存时间(秒)
+  retry_count: 3           # 重试次数
+  timeout: 30              # 超时时间(秒)
+
+# 监控配置
+monitoring:
+  alert_channels: ["email", "webhook"]
+  check_interval: 60       # 检查间隔(秒)
+  log_level: "INFO"

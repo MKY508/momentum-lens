@@ -71,7 +71,7 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
     () => debounce(
       (...args: Parameters<T>) => callbackRef.current(...args),
       delay
-    ) as T,
+    ) as unknown as T,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [delay, ...deps]
   );
@@ -95,7 +95,7 @@ export function useThrottledCallback<T extends (...args: any[]) => any>(
     () => throttle(
       (...args: Parameters<T>) => callbackRef.current(...args),
       delay
-    ) as T,
+    ) as unknown as T,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [delay, ...deps]
   );

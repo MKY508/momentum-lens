@@ -1,0 +1,188 @@
+# Momentum Lens Configuration
+# 动量透镜系统配置文件
+
+# 数据源配置
+data_sources:
+  primary: akshare  # 主数据源
+  fallback:
+    - sina      # 备用源1：新浪财经
+    - eastmoney # 备用源2：东方财富
+  timeout: 10   # 请求超时（秒）
+  retry: 3      # 重试次数
+  cache_ttl: 300  # 缓存过期时间（秒）
+
+# ETF 候选池配置
+etf_universe:
+  # 成长线
+  growth:
+    - code: "588000"
+      name: "科创50ETF"
+    - code: "512760"
+      name: "国防军工ETF"
+    - code: "512720"
+      name: "计算机ETF"
+    - code: "516010"
+      name: "专精特新ETF"
+    - code: "159869"
+      name: "游戏ETF"
+  
+  # 电新链
+  energy:
+    - code: "516160"
+      name: "新能源ETF"
+    - code: "515790"
+      name: "光伏ETF"
+    - code: "515030"
+      name: "新能源车ETF"
+  
+  # 其他行业
+  others:
+    - code: "512400"
+      name: "有色金属ETF"
+    - code: "512000"
+      name: "券商ETF"
+    - code: "512800"
+      name: "银行ETF"
+    - code: "512170"
+      name: "医疗ETF"
+  
+  # Core 资产
+  core:
+    - code: "510300"
+      name: "沪深300ETF"
+    - code: "159919"
+      name: "沪深300ETF(深)"
+    - code: "510880"
+      name: "红利ETF"
+    - code: "511990"
+      name: "华宝现金添益"
+    - code: "518880"
+      name: "黄金ETF"
+    - code: "513500"
+      name: "标普500"
+
+# 策略参数
+strategy:
+  # 状态机阈值
+  state_machine:
+    # 进攻模式条件
+    offense:
+      ma200_above: true  # 价格在MA200上方
+      unlock_days: 5     # 解锁天数阈值
+      chop_max: 50       # CHOP最大值
+    
+    # 防守模式条件
+    defense:
+      ma200_below: true  # 价格在MA200下方
+      fallback_days: 5   # 回落天数阈值
+      chop_min: 70       # CHOP最小值
+    
+    # 中性模式（默认）
+    neutral:
+      description: "介于进攻和防守之间的状态"
+  
+  # 动量参数
+  momentum:
+    short_window: 63   # 短期动量窗口（3月）
+    long_window: 126   # 长期动量窗口（6月）
+    score_weight_short: 0.6  # 短期动量权重
+    score_weight_long: 0.4   # 长期动量权重
+    top_n: 10          # 动量榜前N名
+    
+  # 换腿参数
+  rotation:
+    min_hold_days: 20  # 最短持有期（交易日）
+    buffer_zone: 0.05  # 缓冲区（5%）
+    stop_loss: -0.08   # 止损线（-8%）
+    correlation_threshold: 0.7  # 相关性阈值
+    correlation_window: 90      # 相关性计算窗口
+  
+  # 再平衡参数
+  rebalancing:
+    frequency: "quarterly"  # 季度再平衡
+    deviation_threshold: 0.1  # 偏离阈值（10%）
+    min_trade_amount: 1000    # 最小交易金额
+
+# 可转债配置
+convertible_bonds:
+  # 网格参数
+  grid:
+    base_step: 0.02    # 基础步长（2%）
+    atr_multiplier: 1.5  # ATR倍数
+    min_step: 0.02     # 最小步长（2%）
+    max_step: 0.05     # 最大步长（5%）
+    atr_window: 10     # ATR计算窗口
+  
+  # 评分权重
+  scoring:
+    premium_weight: 0.3    # 溢价率权重
+    volatility_weight: 0.2 # 波动率权重
+    yb_weight: 0.2        # YTM权重
+    liquidity_weight: 0.15 # 流动性权重
+    credit_weight: 0.15    # 信用评级权重
+
+# 建仓计划
+build_plan:
+  weeks: 6              # 建仓周期（周）
+  initial_ratio: 0.2    # 初始仓位比例
+  increment: 0.15       # 每周递增比例
+
+# 预设配置
+presets:
+  # 进攻型
+  aggressive:
+    core_ratio: 0.3
+    satellite_ratio: 0.7
+    max_positions: 4
+    state_bias: "offense"
+  
+  # 均衡型
+  balanced:
+    core_ratio: 0.5
+    satellite_ratio: 0.5
+    max_positions: 3
+    state_bias: "neutral"
+  
+  # 保守型
+  conservative:
+    core_ratio: 0.7
+    satellite_ratio: 0.3
+    max_positions: 2
+    state_bias: "defense"
+
+# 回测配置
+backtest:
+  start_date: "2019-01-01"
+  end_date: "2024-01-01"
+  initial_cash: 1000000
+  commission: 0.0003  # 手续费率
+  slippage: 0.001     # 滑点
+
+# 导出配置
+export:
+  output_dir: "./exports"
+  formats:
+    - csv
+    - pdf
+  schedule: "tuesday"  # 每周二生成
+
+# 界面配置
+ui:
+  theme: "light"
+  refresh_interval: 60  # 刷新间隔（秒）
+  show_debug: false
+  language: "zh_CN"
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/momentum_lens.log"
+  rotation: "1 day"
+  retention: "30 days"
+
+# 数据库配置
+database:
+  type: "sqlite"
+  path: "./data/momentum_lens.db"
+  echo: false

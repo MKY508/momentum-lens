@@ -1,0 +1,16 @@
+# 持仓记录
+positions:
+  - code: "510300"
+    name: "沪深300ETF"
+    weight: 0.3
+    entry_price: 3.85
+    entry_date: "2024-01-15"
+  
+  - code: "512760"
+    name: "国防军工ETF"
+    weight: 0.2
+    entry_price: 0.95
+    entry_date: "2024-01-20"
+
+cash_ratio: 0.1
+total_assets: 1000000
