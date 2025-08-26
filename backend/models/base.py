@@ -156,6 +156,9 @@ class DatabaseManager:
     @staticmethod
     def vacuum_analyze():
         """Run VACUUM ANALYZE on PostgreSQL database"""
+        if engine.dialect.name != "postgresql":
+            logger.warning("VACUUM ANALYZE skipped: not using PostgreSQL")
+            return
         try:
             with engine.connect() as conn:
                 conn.execute("VACUUM ANALYZE")
@@ -166,6 +169,9 @@ class DatabaseManager:
     @staticmethod
     def backup_database(backup_path: str):
         """Create database backup (PostgreSQL specific)"""
+        if engine.dialect.name != "postgresql":
+            logger.warning("Backup skipped: not using PostgreSQL")
+            return
         import subprocess
         try:
             cmd = [
