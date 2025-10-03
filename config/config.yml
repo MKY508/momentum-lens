@@ -1,0 +1,65 @@
+# RQAlpha 配置文件
+# 更多配置项请参考：https://rqalpha.readthedocs.io/zh_CN/latest/intro/run_algorithm.html
+
+base:
+  # 数据源路径 - 如果已下载数据包，这里会自动设置
+  # data_bundle_path: ~/.rqalpha/bundle
+  
+  # 策略文件路径
+  strategy_file: strategies/simple_ma.py
+  
+  # 回测起始日期
+  start_date: 2020-01-01
+  
+  # 回测结束日期
+  end_date: 2023-12-31
+  
+  # 初始资金
+  accounts:
+    stock: 1000000  # 股票账户初始资金 100万
+  
+  # 基准合约
+  benchmark: 000300.XSHG  # 沪深300指数
+  
+  # 运行模式: b 回测 / p 模拟交易 / r 实盘交易
+  run_type: b
+  
+  # 频率: 1d 日线 / 1m 分钟线
+  frequency: 1d
+  
+  # 市场类型
+  market: cn
+
+extra:
+  # 日志配置
+  log_level: info
+  
+  # 分析模块
+  analyse:
+    enabled: true
+    # 结果输出路径
+    output_file: results/result.pkl
+    # 报告输出路径
+    report_save_path: results/
+    # 绘图
+    plot: true
+    # 绘图保存路径
+    plot_save_file: results/plot.html
+
+mod:
+  # 启用的模块
+  sys_analyser:
+    enabled: true
+    plot: true
+    output_file: results/result.pkl
+    plot_save_file: results/plot.html
+    report_save_path: results/
+  
+  sys_progress:
+    enabled: true
+    show: true
+  
+  sys_risk:
+    enabled: true
+    # 风险管理参数
+    validate_position: true

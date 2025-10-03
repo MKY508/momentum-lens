@@ -1,0 +1,5 @@
+numpy>=1.26
+pandas>=2.2
+plotly==5.24.0
+h5py>=3.10
+rqalpha>=4.10
