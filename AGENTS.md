@@ -5,13 +5,13 @@
 - `scripts/`: Maintenance helpers (`setup.sh`, `link_cli.sh`) for environment creation and PATH linking.
 - `results/`: Generated reports and Plotly HTML charts (ignored by Git).
 - `strategies/`: Auto-exported RQAlpha strategies; cleaned via settings menu.
-- Root files include `momentum.sh` (entrypoint), `requirements.txt`, and documentation (`README.md`, `AGENTS.md`).
+- Root files include `momentum_lens.sh` (entrypoint), `requirements.txt`, and documentation (`README.md`, `AGENTS.md`).
 
 ## Build, Test, and Development Commands
 - `./scripts/setup.sh`: Create `.venv` and install dependencies.
 - `source .venv/bin/activate`: Activate virtual environment for development.
-- `momentum` or `./momentum.sh`: Launch CLI in interactive mode.
-- `momentum analyze --preset core --no-plot`: Run a non-interactive analysis using preset parameters.
+- `momentum-lens` or `./momentum_lens.sh`: Launch CLI in interactive mode.
+- `momentum-lens analyze --preset core --no-plot`: Run a non-interactive analysis using preset parameters.
 
 ## Coding Style & Naming Conventions
 - Python source uses 4-space indentation and type hints where practical.

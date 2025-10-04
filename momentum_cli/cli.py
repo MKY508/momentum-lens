@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import importlib
 import io
 import json
+import os
 import re
+import select
 import subprocess
 import sys
 import shutil
 import textwrap
+import time
 import unicodedata
 import webbrowser
 from dataclasses import asdict
@@ -59,6 +63,37 @@ from .presets import (
 
 
 SETTINGS_STORE_PATH = Path(__file__).resolve().parent / "cli_settings.json"
+
+APP_NAME = "Momentum Lens"
+APP_VERSION = "0.9.0"
+REPO_URL = "https://github.com/your-org/momentum-lens"
+LAUNCHER_BASENAME = "momentum_lens.sh"
+LAUNCHER_COMMAND = f"./{LAUNCHER_BASENAME}"
+
+_KEYLOG_ENABLED = bool(os.environ.get("MOMENTUM_KEY_DEBUG"))
+_KEYLOG_PATH = Path(
+    os.environ.get("MOMENTUM_KEY_DEBUG_FILE", str(Path.home() / ".momentum_keylog"))
+)
+
+
+def _log_key_event(label: str, payload: str) -> None:
+    if not _KEYLOG_ENABLED:
+        return
+    try:
+        escaped = payload.encode("unicode_escape", errors="backslashreplace").decode("ascii")
+        with _KEYLOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(f"{time.time():.6f} {label}: {escaped}\n")
+    except OSError:
+        pass
+
+
+def _log_key_result(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        _log_key_event("key", "<None>")
+    else:
+        _log_key_event("key", value)
+    return value
+
 
 _CLI_THEMES = {
     "aurora": {
@@ -136,13 +171,146 @@ _CLI_THEMES = {
         "rank_bronze": "\033[1;32m",
         "header": "\033[1;32m",
     },
+    "monet": {
+        "reset": "\033[0m",
+        "title": "\033[1;38;5;111m",
+        "heading": "\033[38;5;153m",
+        "menu_number": "\033[38;5;115m",
+        "menu_text": "\033[38;5;109m",
+        "menu_disabled": "\033[38;5;145m",
+        "menu_bullet": "\033[38;5;189m",
+        "menu_hint": "\033[38;5;151m",
+        "prompt": "\033[1;38;5;176m",
+        "border": "\033[38;5;152m",
+        "divider": "\033[38;5;188m",
+        "info": "\033[38;5;116m",
+        "warning": "\033[38;5;179m",
+        "danger": "\033[38;5;168m",
+        "accent": "\033[38;5;150m",
+        "dim": "\033[2;38;5;188m",
+        "value_positive": "\033[38;5;114m",
+        "value_negative": "\033[38;5;168m",
+        "value_neutral": "\033[38;5;145m",
+        "rank_gold": "\033[1;38;5;221m",
+        "rank_silver": "\033[1;38;5;188m",
+        "rank_bronze": "\033[1;38;5;181m",
+        "header": "\033[1;38;5;153m",
+    },
+    "bauhaus": {
+        "reset": "\033[0m",
+        "title": "\033[1;38;5;226m",
+        "heading": "\033[1;38;5;196m",
+        "menu_number": "\033[1;38;5;21m",
+        "menu_text": "\033[38;5;21m",
+        "menu_disabled": "\033[38;5;241m",
+        "menu_bullet": "\033[1;38;5;196m",
+        "menu_hint": "\033[38;5;214m",
+        "prompt": "\033[1;38;5;202m",
+        "border": "\033[38;5;196m",
+        "divider": "\033[38;5;241m",
+        "info": "\033[38;5;220m",
+        "warning": "\033[1;38;5;208m",
+        "danger": "\033[1;38;5;196m",
+        "accent": "\033[38;5;39m",
+        "dim": "\033[2;38;5;243m",
+        "value_positive": "\033[38;5;40m",
+        "value_negative": "\033[38;5;196m",
+        "value_neutral": "\033[38;5;244m",
+        "rank_gold": "\033[1;38;5;226m",
+        "rank_silver": "\033[1;38;5;250m",
+        "rank_bronze": "\033[1;38;5;208m",
+        "header": "\033[1;38;5;196m",
+    },
+    "hokusai": {
+        "reset": "\033[0m",
+        "title": "\033[1;38;5;26m",
+        "heading": "\033[38;5;33m",
+        "menu_number": "\033[38;5;31m",
+        "menu_text": "\033[38;5;30m",
+        "menu_disabled": "\033[38;5;240m",
+        "menu_bullet": "\033[1;38;5;31m",
+        "menu_hint": "\033[38;5;75m",
+        "prompt": "\033[1;38;5;111m",
+        "border": "\033[38;5;25m",
+        "divider": "\033[38;5;240m",
+        "info": "\033[38;5;74m",
+        "warning": "\033[38;5;179m",
+        "danger": "\033[38;5;167m",
+        "accent": "\033[38;5;117m",
+        "dim": "\033[2;38;5;238m",
+        "value_positive": "\033[38;5;72m",
+        "value_negative": "\033[38;5;167m",
+        "value_neutral": "\033[38;5;244m",
+        "rank_gold": "\033[1;38;5;228m",
+        "rank_silver": "\033[1;38;5;153m",
+        "rank_bronze": "\033[1;38;5;66m",
+        "header": "\033[1;38;5;32m",
+    },
+    "noir": {
+        "reset": "\033[0m",
+        "title": "\033[1;97m",
+        "heading": "\033[1;90m",
+        "menu_number": "\033[1;37m",
+        "menu_text": "\033[37m",
+        "menu_disabled": "\033[90m",
+        "menu_bullet": "\033[1;97m",
+        "menu_hint": "\033[38;5;249m",
+        "prompt": "\033[1;38;5;203m",
+        "border": "\033[90m",
+        "divider": "\033[90m",
+        "info": "\033[37m",
+        "warning": "\033[1;93m",
+        "danger": "\033[1;91m",
+        "accent": "\033[38;5;208m",
+        "dim": "\033[2;90m",
+        "value_positive": "\033[38;5;47m",
+        "value_negative": "\033[38;5;203m",
+        "value_neutral": "\033[38;5;244m",
+        "rank_gold": "\033[1;33m",
+        "rank_silver": "\033[1;37m",
+        "rank_bronze": "\033[1;35m",
+        "header": "\033[1;97m",
+    },
+    "rothko": {
+        "reset": "\033[0m",
+        "title": "\033[1;38;5;204m",
+        "heading": "\033[38;5;202m",
+        "menu_number": "\033[38;5;131m",
+        "menu_text": "\033[38;5;167m",
+        "menu_disabled": "\033[38;5;95m",
+        "menu_bullet": "\033[1;38;5;208m",
+        "menu_hint": "\033[38;5;209m",
+        "prompt": "\033[1;38;5;203m",
+        "border": "\033[38;5;202m",
+        "divider": "\033[38;5;95m",
+        "info": "\033[38;5;209m",
+        "warning": "\033[38;5;215m",
+        "danger": "\033[1;38;5;196m",
+        "accent": "\033[38;5;178m",
+        "dim": "\033[2;38;5;95m",
+        "value_positive": "\033[38;5;150m",
+        "value_negative": "\033[38;5;203m",
+        "value_neutral": "\033[38;5;244m",
+        "rank_gold": "\033[1;38;5;221m",
+        "rank_silver": "\033[1;38;5;188m",
+        "rank_bronze": "\033[1;38;5;173m",
+        "header": "\033[1;38;5;204m",
+    },
 }
-_CLI_THEME_ORDER = ["aurora", "ember", "evergreen"]
+_CLI_THEME_ORDER = ["aurora", "ember", "evergreen", "monet", "bauhaus", "hokusai", "noir", "rothko"]
 _CLI_THEME_INFO = {
     "aurora": {"label": "极光（蓝绿）", "description": "亮蓝 / 青色高对比，适合暗色背景"},
     "ember": {"label": "余烬（暖色）", "description": "暖色调强调提示，适合浅色背景"},
     "evergreen": {"label": "常青（低饱和）", "description": "柔和绿色主色，整体更稳重"},
+    "monet": {"label": "莫奈·睡莲", "description": "印象派淡蓝粉调，柔和渐变"},
+    "bauhaus": {"label": "包豪斯·构成", "description": "高饱和原色对比，几何感强"},
+    "hokusai": {"label": "北斋·浮世绘", "description": "靛青 + 海浪色，冷色氛围"},
+    "noir": {"label": "黑场·胶片", "description": "黑白高对比，辅以亮橙点缀"},
+    "rothko": {"label": "罗斯科·色域", "description": "红橙叠色，低饱和紫调过渡"},
 }
+
+_TERMINAL_SIZE_CACHE = {"columns": 120, "timestamp": 0.0}
+_THEME_SAMPLE_CACHE: Dict[str, str] = {}
 
 _DEFAULT_SETTINGS = {
     "cli_theme": "aurora",
@@ -378,13 +546,80 @@ if _STABILITY_WEIGHT != _SETTINGS.get("stability_weight"):
 if _settings_dirty:
     _save_cli_settings()
 
+
+def _build_builtin_template(
+    preset_keys: Sequence[str],
+    analysis_key: str,
+    *,
+    start: str = "2018-01-01",
+    end: Optional[str] = None,
+) -> Optional[dict]:
+    preset = ANALYSIS_PRESETS.get(analysis_key)
+    if not preset:
+        return None
+    windows = [int(win) for win in preset.momentum_windows]
+    weights = (
+        [float(weight) for weight in preset.momentum_weights]
+        if preset.momentum_weights is not None
+        else None
+    )
+    skip_windows = (
+        [int(value) for value in preset.momentum_skip_windows]
+        if preset.momentum_skip_windows is not None
+        else None
+    )
+    return {
+        "etfs": [],
+        "exclude": [],
+        "presets": list(preset_keys),
+        "start": start,
+        "end": end,
+        "momentum_windows": windows,
+        "momentum_weights": weights,
+        "momentum_skip_windows": skip_windows,
+        "corr_window": preset.corr_window,
+        "chop_window": preset.chop_window,
+        "trend_window": preset.trend_window,
+        "rank_lookback": preset.rank_lookback,
+        "make_plots": True,
+        "export_csv": False,
+        "output_dir": "results",
+        "analysis_preset": analysis_key,
+        "stability_method": _STABILITY_METHOD,
+        "stability_window": _STABILITY_WINDOW,
+        "stability_top_n": _STABILITY_TOP_N,
+        "stability_weight": _STABILITY_WEIGHT,
+    }
+
+
+_BUILTIN_TEMPLATE_DEFINITIONS: Sequence[tuple[str, Sequence[str], str]] = (
+    ("core-slow-core", ("core",), "slow-core"),
+    ("core-satellite-dual", ("core", "satellite"), "blend-dual"),
+    ("longwave-12m1m", ("core", "satellite"), "twelve-minus-one"),
+    ("fast-rotation", ("satellite",), "fast-rotation"),
+)
+
+
+def _builtin_template_store() -> Dict[str, dict]:
+    store: Dict[str, dict] = {}
+    for name, preset_keys, analysis_key in _BUILTIN_TEMPLATE_DEFINITIONS:
+        payload = _build_builtin_template(preset_keys, analysis_key)
+        if payload:
+            store[name] = payload
+    return store
+
+
 TEMPLATE_STORE_PATH = Path(__file__).resolve().parent / "templates.json"
 MAX_SERIES_EXPORT = 200
 
 
 _COLOR_ENABLED = sys.stdout.isatty()
+_INTERACTIVE_MODE = False
 _LAST_BUNDLE_REFRESH: dt.datetime | None = None
 _LAST_BACKTEST_CONTEXT: dict | None = None
+_REPORT_HISTORY: List[dict] = []
+_MAX_REPORT_HISTORY = 20
+_REPORT_TIMESTAMP_FMT = "%Y-%m-%d %H:%M"
 
 _BUNDLE_ROOT = Path.home() / ".rqalpha" / "bundle"
 _BUNDLE_VERSION_FILE = _BUNDLE_ROOT / "bundle_version.json"
@@ -544,7 +779,7 @@ def _maybe_prompt_bundle_refresh(interactive: bool, reason: str, *, force: bool 
         version_display = status.get("version") or status.get("version_raw") or "未知版本"
         print(
             colorize(
-                f"提示：检测到 RQAlpha 数据包 {version_display} 可能过期，建议运行 ./momentum.sh bundle-update 以获取最新数据。",
+                f"提示：检测到 RQAlpha 数据包 {version_display} 可能过期，建议运行 {LAUNCHER_COMMAND} bundle-update 以获取最新数据。",
                 "warning",
             )
         )
@@ -718,20 +953,30 @@ def _apply_cli_theme(theme_key: str, *, persist: bool = True) -> bool:
         return False
     _STYLE_THEME = theme_key
     _STYLE_CODES = dict(_CLI_THEMES[theme_key])
+    if hasattr(_strip_ansi, "cache_clear"):
+        _strip_ansi.cache_clear()  # 清除缓存，防止旧主题残留
+    if hasattr(_display_width, "cache_clear"):
+        _display_width.cache_clear()
+    _THEME_SAMPLE_CACHE.clear()
     if persist:
         _update_setting("cli_theme", theme_key)
     return True
 
 
 def _render_theme_sample(theme_key: str) -> str:
+    cached = _THEME_SAMPLE_CACHE.get(theme_key)
+    if cached is not None:
+        return cached
     codes = _CLI_THEMES[theme_key]
-    return (
+    sample = (
         f"     {codes['title']}标题{codes['reset']} "
         f"{codes['menu_text']}菜单{codes['reset']} "
         f"{codes['prompt']}输入{codes['reset']} "
         f"{codes['value_positive']}+1.20%{codes['reset']} "
         f"{codes['value_negative']}-0.85%{codes['reset']}"
     )
+    _THEME_SAMPLE_CACHE[theme_key] = sample
+    return sample
 
 
 def _rank_style(rank: int) -> str | None:
@@ -1135,6 +1380,7 @@ _AMBIGUOUS_NARROW = {
 }
 
 
+@functools.lru_cache(maxsize=2048)
 def _strip_ansi(text: str) -> str:
     return _ANSI_PATTERN.sub("", text)
 
@@ -1160,6 +1406,7 @@ def _fallback_display_width(text: str) -> int:
     return width
 
 
+@functools.lru_cache(maxsize=1024)
 def _display_width(text: str) -> int:
     cleaned = _strip_ansi(text)
     if _wcwidth_wcswidth:
@@ -1379,48 +1626,98 @@ def _supports_interactive_menu() -> bool:
     return True
 
 
+_ESC_SEQUENCE_TIMEOUT = 0.3
+_ESC_POLL_INTERVAL = 0.05
+_MAX_ESC_SEQUENCE = 16
+
+
+def _read_byte(fd: int) -> Optional[str]:
+    try:
+        data = os.read(fd, 1)
+    except OSError:
+        return None
+    if not data:
+        return None
+    return data.decode("latin-1")
+
+
+def _read_escape_sequence(fd: int) -> str:
+    chars: List[str] = []
+    deadline = time.monotonic() + _ESC_SEQUENCE_TIMEOUT
+    while len(chars) < _MAX_ESC_SEQUENCE and time.monotonic() < deadline:
+        try:
+            rlist, _, _ = select.select([fd], [], [], _ESC_POLL_INTERVAL)
+        except (OSError, ValueError):
+            break
+        if not rlist:
+            break
+        next_ch = _read_byte(fd)
+        if not next_ch:
+            break
+        chars.append(next_ch)
+        if next_ch.isalpha() or next_ch == "~":
+            break
+    return "".join(chars)
+
+
+def _translate_escape_sequence(sequence: str) -> Optional[str]:
+    mapping = {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}
+    if not sequence:
+        return "ESC"
+    prefix = sequence[0]
+    final = sequence[-1]
+    if prefix in {"[", "O"} and final in mapping:
+        return mapping[final]
+    if prefix == "[" and final == "Z":
+        return "SHIFT_TAB"
+    if prefix == "[" and final in mapping:
+        return mapping[final]
+    return "ESC"
+
+
 def _read_keypress() -> Optional[str]:
     if msvcrt is not None:
         ch = msvcrt.getwch()
+        _log_key_event("raw", ch)
         if ch in {"\r", "\n"}:
-            return "ENTER"
+            return _log_key_result("ENTER")
         if ch in {"\x00", "\xe0"}:
             seq = msvcrt.getwch()
+            _log_key_event("esc_sequence", seq)
             mapping = {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT"}
-            return mapping.get(seq)
+            return _log_key_result(mapping.get(seq))
         if ch == "\x1b":
-            return "ESC"
+            return _log_key_result("ESC")
         if ch == "\x03":
             raise KeyboardInterrupt
         if ch == "\x08":
-            return "BACKSPACE"
-        return ch
+            return _log_key_result("BACKSPACE")
+        return _log_key_result(ch)
     if termios is None or tty is None:
-        return None
+        return _log_key_result(None)
     try:
         fd = sys.stdin.fileno()
     except (AttributeError, io.UnsupportedOperation):
-        return None
+        return _log_key_result(None)
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        ch = sys.stdin.read(1)
-        if not ch:
-            return None
+        ch = _read_byte(fd)
+        if ch is None:
+            return _log_key_result(None)
+        _log_key_event("raw", ch)
         if ch == "\x03":
             raise KeyboardInterrupt
         if ch in {"\r", "\n"}:
-            return "ENTER"
+            return _log_key_result("ENTER")
         if ch == "\x1b":
-            next1 = sys.stdin.read(1)
-            if next1 == "[":
-                next2 = sys.stdin.read(1)
-                mapping = {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}
-                return mapping.get(next2, "ESC")
-            return "ESC"
+            sequence = _read_escape_sequence(fd)
+            _log_key_event("esc_sequence", sequence or "<empty>")
+            translated = _translate_escape_sequence(sequence)
+            return _log_key_result(translated)
         if ch in {"\x7f", "\b"}:
-            return "BACKSPACE"
-        return ch
+            return _log_key_result("BACKSPACE")
+        return _log_key_result(ch)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
@@ -1462,12 +1759,23 @@ def _find_option_by_prefix(options: Sequence[dict], key: str) -> Optional[int]:
     return None
 
 
-def _estimate_physical_lines(lines: Sequence[str]) -> int:
+def _get_terminal_columns() -> int:
+    now = time.monotonic()
+    cached = _TERMINAL_SIZE_CACHE["columns"]
+    if cached and now - _TERMINAL_SIZE_CACHE["timestamp"] <= 1.0:
+        return cached
     try:
         columns = shutil.get_terminal_size(fallback=(120, 30)).columns
     except OSError:
-        columns = 120
+        columns = cached or 120
     columns = max(int(columns or 0), 10)
+    _TERMINAL_SIZE_CACHE["columns"] = columns
+    _TERMINAL_SIZE_CACHE["timestamp"] = now
+    return columns
+
+
+def _estimate_physical_lines(lines: Sequence[str]) -> int:
+    columns = _get_terminal_columns()
     total = 0
     for raw_line in lines:
         segments = str(raw_line).split("\n") if raw_line else [""]
@@ -1512,7 +1820,7 @@ def _render_menu_block(
         hint_rendered = hint_line if "\x1b[" in hint_line else colorize(hint_line, "menu_hint")
         lines.append(hint_rendered)
     else:
-        lines.append(colorize("↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回", "menu_hint"))
+        lines.append(colorize("↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回", "menu_hint"))
     if pending_input:
         lines.append(colorize(f"快捷输入: {pending_input}", "menu_hint"))
     if footer_lines:
@@ -1544,6 +1852,7 @@ def _prompt_menu_choice(
     default_key: Optional[str] = None,
     allow_escape: bool = True,
     instant_numeric: bool = True,
+    escape_prompt: Optional[str] = None,
 ) -> str:
     normalized: List[dict] = []
     for option in options:
@@ -1709,21 +2018,50 @@ def _prompt_menu_choice(
             continue
         pending = ""
 
+
+def _load_template_store() -> Dict[str, dict]:
+    base_store = _builtin_template_store()
     if not TEMPLATE_STORE_PATH.exists():
-        return {}
+        return dict(base_store)
     try:
         data = json.loads(TEMPLATE_STORE_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
+        return dict(base_store)
     templates = data.get("templates")
-    if isinstance(templates, dict):
-        return templates
-    return {}
+    if not isinstance(templates, dict):
+        return dict(base_store)
+    store = dict(base_store)
+    for raw_key, value in templates.items():
+        key = str(raw_key)
+        if value is None:
+            store.pop(key, None)
+            continue
+        if isinstance(value, dict):
+            store[key] = dict(value)
+    return store
 
 
 def _write_template_store(store: Dict[str, dict]) -> None:
+    base_store = _builtin_template_store()
+    payload_templates: Dict[str, Optional[dict]] = {}
+    for key, value in store.items():
+        base_value = base_store.get(key)
+        if value is None:
+            payload_templates[key] = None
+            continue
+        if not isinstance(value, dict):
+            continue
+        if base_value is not None and base_value == value:
+            continue
+        payload_templates[key] = value
     TEMPLATE_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"templates": store}
+    if not payload_templates:
+        try:
+            TEMPLATE_STORE_PATH.unlink()
+        except OSError:
+            pass
+        return
+    payload = {"templates": payload_templates}
     TEMPLATE_STORE_PATH.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -1736,18 +2074,24 @@ def _get_template_entry(name: str) -> Optional[dict]:
 
 def _save_template_entry(name: str, payload: dict, overwrite: bool = False) -> bool:
     store = _load_template_store()
-    if not overwrite and name in store:
+    existing = store.get(name)
+    if not overwrite and existing is not None:
         return False
-    store[name] = payload
+    store[name] = dict(payload)
     _write_template_store(store)
     return True
 
 
 def _delete_template_entry(name: str) -> bool:
     store = _load_template_store()
-    if name not in store:
+    base_store = _builtin_template_store()
+    existed = name in store or name in base_store
+    if not existed:
         return False
-    del store[name]
+    if name in store:
+        del store[name]
+    if name in base_store:
+        store[name] = None
     _write_template_store(store)
     return True
 
@@ -1790,9 +2134,9 @@ def _build_template_payload(
         "chop_window": config.chop_window,
         "trend_window": config.trend_window,
         "rank_lookback": config.rank_change_lookback,
-        "make_plots": config.make_plots,
+        "make_plots": False,
         "output_dir": str(config.output_dir),
-        "export_csv": bool(export_csv),
+        "export_csv": False,
         "stability_method": config.stability_method,
         "stability_window": config.stability_window,
         "stability_top_n": config.stability_top_n,
@@ -1980,7 +2324,7 @@ def _edit_code_list_interactively(existing: Sequence[str]) -> List[str]:
             options,
             title="┌─ 券池编辑 ─" + "─" * 18,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice in {"0", "__escape__"}:
@@ -2029,14 +2373,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "ETF momentum analytics toolkit leveraging the local RQAlpha bundle.\n"
-            "默认行为等同于 `momentum.sh analyze ...`。"
+            f"默认行为等同于 `{LAUNCHER_BASENAME} analyze ...`。"
         ),
         formatter_class=RichHelpFormatter,
         epilog=(
             "示例:\n"
-            "  ./momentum.sh analyze --preset core --run-backtest\n"
-            "  ./momentum.sh analyze --preset core --export-strategy strategies/momentum_strategy.py\n"
-            "  ./momentum.sh presets\n"
+            f"  {LAUNCHER_COMMAND} analyze --preset core --run-backtest\n"
+            f"  {LAUNCHER_COMMAND} analyze --preset core --export-strategy strategies/momentum_strategy.py\n"
+            f"  {LAUNCHER_COMMAND} presets\n"
         ),
     )
 
@@ -2199,7 +2543,7 @@ def build_parser() -> argparse.ArgumentParser:
     utility_group.add_argument(
         "--interactive",
         action="store_true",
-        help="进入交互式菜单，适合 ./momentum.sh 不带参数的场景。",
+        help=f"进入交互式菜单，适合 {LAUNCHER_COMMAND} 不带参数的场景。",
     )
     utility_group.add_argument(
         "--list-presets",
@@ -3380,7 +3724,7 @@ def _show_preset_settings_menu() -> None:
             options,
             title="┌─ 券池预设管理 ─" + "─" * 16,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice == "1":
@@ -3636,7 +3980,7 @@ def _show_analysis_preset_settings_menu() -> None:
             options,
             title="┌─ 分析预设管理 ─" + "─" * 16,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice == "1":
@@ -3802,7 +4146,7 @@ def _configure_cli_theme() -> None:
             options,
             title="┌─ 终端主题与色彩 ─" + "─" * 18,
             header_lines=header_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key=default_key,
         )
         if choice in {"0", "__escape__"}:
@@ -3862,7 +4206,7 @@ def _configure_plot_style() -> None:
             options,
             title="┌─ 图表样式设置 ─" + "─" * 18,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key=default_key,
         )
         if choice in {"0", "__escape__"}:
@@ -3920,7 +4264,7 @@ def _configure_correlation_threshold() -> None:
         options,
         title="┌─ 相关矩阵阈值 ─" + "─" * 18,
         header_lines=header_lines,
-        hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+        hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
         default_key="0",
     ).strip()
     if not choice or choice in {"0", "__escape__"}:
@@ -4037,7 +4381,7 @@ def _configure_stability_settings() -> None:
             options,
             title="┌─ 稳定度参数设置 ─" + "─" * 14,
             header_lines=header_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice in {"0", "__escape__"}:
@@ -4120,10 +4464,12 @@ def _update_data_bundle() -> None:
         version_display = status.get("version") or status.get("version_raw") or "最新版本"
         print(colorize(f"当前数据包 {version_display} 已是最新，无需重新下载。", "info"))
         _BUNDLE_UPDATE_PROMPTED = False
+        _wait_for_ack()
         return
     command = _find_rqalpha_command()
     if not command:
         print(colorize("未找到 rqalpha 可执行文件，请先安装或激活环境后再试。", "danger"))
+        _wait_for_ack()
         return
     print(colorize("开始下载最新的 RQAlpha 数据包，这可能需要几分钟……", "info"))
     download_command = command + ["download-bundle"]
@@ -4133,6 +4479,7 @@ def _update_data_bundle() -> None:
         )
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"download-bundle 调用失败: {exc}", "danger"))
+        _wait_for_ack()
         return
     if download_result.returncode == 0:
         _LAST_BUNDLE_REFRESH = dt.datetime.now()
@@ -4142,6 +4489,7 @@ def _update_data_bundle() -> None:
         _LAST_BACKTEST_CONTEXT = None
         _BUNDLE_STATUS_CACHE = None
         _BUNDLE_UPDATE_PROMPTED = False
+        _wait_for_ack()
         return
     printable_dl = " ".join(download_command)
     print(
@@ -4155,6 +4503,7 @@ def _update_data_bundle() -> None:
         update_result = subprocess.run(update_command, cwd=str(Path.home()), check=False)
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"update-bundle 调用失败: {exc}", "danger"))
+        _wait_for_ack()
         return
     if update_result.returncode == 0:
         _LAST_BUNDLE_REFRESH = dt.datetime.now()
@@ -4164,6 +4513,7 @@ def _update_data_bundle() -> None:
         _LAST_BACKTEST_CONTEXT = None
         _BUNDLE_STATUS_CACHE = None
         _BUNDLE_UPDATE_PROMPTED = False
+        _wait_for_ack()
         return
     printable_up = " ".join(update_command)
     print(
@@ -4173,6 +4523,7 @@ def _update_data_bundle() -> None:
             "danger",
         )
     )
+    _wait_for_ack()
 
 
 def _normalize_momentum_weights(
@@ -4391,9 +4742,36 @@ def _parse_index_list(raw: str, upper_bound: int) -> Optional[List[int]]:
 
 
 def _prompt_yes_no(question: str, default: bool = True) -> bool:
-    hint = "Y/n" if default else "y/N"
+    default_label = "是" if default else "否"
+    prompt_text = f"{question} 默认{default_label}，按 y/n 或回车确认: "
+
+    if _supports_interactive_menu():
+        while True:
+            sys.stdout.write(colorize(prompt_text, "prompt"))
+            sys.stdout.flush()
+            key = _read_keypress()
+            if key is None:
+                sys.stdout.write("\n")
+                break
+            if key == "ENTER":
+                sys.stdout.write("\n")
+                return default
+            if len(key) == 1:
+                lower = key.lower()
+                if lower in {"y", "yes", "是"}:
+                    sys.stdout.write(f"{key}\n")
+                    return True
+                if lower in {"n", "no", "否"}:
+                    sys.stdout.write(f"{key}\n")
+                    return False
+            if key == "ESC":
+                sys.stdout.write("\n")
+                return default
+            sys.stdout.write("\a")
+            sys.stdout.flush()
+    # Fallback: standard input
     while True:
-        raw = input(colorize(f"{question} ({hint}): ", "prompt")).strip().lower()
+        raw = input(colorize(prompt_text, "prompt")).strip().lower()
         if not raw:
             return default
         if raw in {"y", "yes", "是"}:
@@ -4401,6 +4779,25 @@ def _prompt_yes_no(question: str, default: bool = True) -> bool:
         if raw in {"n", "no", "否"}:
             return False
         print(colorize("请输入 y 或 n。", "warning"))
+
+
+def _wait_for_ack(message: str = "按任意键继续...") -> None:
+    if not _INTERACTIVE_MODE:
+        return
+    prompt_text = colorize(message, "menu_hint")
+    if _supports_interactive_menu():
+        sys.stdout.write(prompt_text)
+        sys.stdout.flush()
+        key = _read_keypress()
+        if key is None:
+            sys.stdout.write("\n")
+            inp_prompt = colorize("按回车继续...", "prompt")
+            input(inp_prompt)
+            return
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    else:
+        input(colorize(f"{message} (回车确认)", "prompt"))
 
 
 def _prompt_date(question: str, default: Optional[str] = None) -> Optional[str]:
@@ -4473,7 +4870,7 @@ def _interactive_remove_codes(codes: List[str]) -> List[str]:
             options,
             title="┌─ 券池剔除 ─" + "─" * 18,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice in {"0", "__escape__"}:
@@ -4548,7 +4945,7 @@ def _interactive_add_codes(codes: List[str]) -> List[str]:
             options,
             title="┌─ 券池扩充 ─" + "─" * 18,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice in {"0", "__escape__"}:
@@ -4603,6 +5000,7 @@ def _interactive_show_rank_snapshot(state: dict) -> None:
     rank_df = result.rank_history.dropna(how="all")
     if rank_df.empty:
         print(colorize("暂无排名历史数据。", "warning"))
+        _wait_for_ack()
         return
     default_date = rank_df.index[-1].date().isoformat()
     date_str = _prompt_date("选择查看动量排名的日期", default_date)
@@ -4611,6 +5009,7 @@ def _interactive_show_rank_snapshot(state: dict) -> None:
         loc = rank_df.index.get_loc(target_ts, method="pad")
     except KeyError:
         print(colorize("所选日期早于数据起点，无法回溯。", "warning"))
+        _wait_for_ack()
         return
     actual_ts = rank_df.index[loc]
     top_default = min(10, len(rank_df.columns))
@@ -4641,6 +5040,7 @@ def _interactive_show_rank_snapshot(state: dict) -> None:
         print(colorize(line, "menu_text"))
     if actual_ts != target_ts:
         print(colorize("（提示：未找到精确日期，已展示最近的交易日数据。）", "menu_hint"))
+    _wait_for_ack()
 
 
 def _interactive_generate_interactive_chart(state: dict, kind: str) -> None:
@@ -4713,6 +5113,7 @@ def _interactive_generate_interactive_chart(state: dict, kind: str) -> None:
     if path is not None:
         print(colorize(f"已生成图表: {path}", "value_positive"))
         _maybe_open_browser(path)
+    _wait_for_ack()
 
 
 def _select_codes_interactively() -> Optional[List[str]]:
@@ -4796,7 +5197,7 @@ def _choose_analysis_preset_interactively() -> AnalysisPreset:
             options,
             title="┌─ 分析预设选择 ─" + "─" * 16,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="1",
             allow_escape=False,
         )
@@ -4836,33 +5237,36 @@ def _collect_parameters_interactive() -> Optional[dict]:
 
     start = _prompt_date("开始日期", default_start)
     end = _prompt_date("结束日期", default_end)
-    windows = _prompt_windows(momentum_defaults.windows)
+
+    windows = tuple(momentum_defaults.windows)
     weights = (
-        tuple(momentum_defaults.weights)
-        if momentum_defaults.weights and tuple(windows) == tuple(momentum_defaults.windows)
-        else None
+        tuple(momentum_defaults.weights) if momentum_defaults.weights else None
     )
     skip_windows = (
         tuple(momentum_defaults.skip_windows)
-        if momentum_defaults.skip_windows and tuple(windows) == tuple(momentum_defaults.windows)
+        if momentum_defaults.skip_windows
         else None
     )
-    corr_window = _prompt_int("相关系数滚动窗口（日）", defaults.corr_window)
-    make_plots = _prompt_yes_no("是否生成图表？", True)
-    export_csv = _prompt_yes_no("是否导出 CSV 到 results/ 目录？", True)
+    corr_window = defaults.corr_window
+    chop_window = defaults.chop_window
+    trend_window = defaults.trend_window
+    rank_lookback = defaults.rank_change_lookback
+    make_plots = False
+    export_csv = False
+    output_dir = str(defaults.output_dir)
 
-    if _prompt_yes_no("是否调整高级参数（Chop/趋势/排名回溯）？", False):
-        chop_window = _prompt_int("Chop 指数窗口", defaults.chop_window)
-        trend_window = _prompt_int("趋势斜率窗口", defaults.trend_window)
-        rank_lookback = _prompt_int("动量排名变动回溯天数", defaults.rank_change_lookback)
-    else:
-        chop_window = defaults.chop_window
-        trend_window = defaults.trend_window
-        rank_lookback = defaults.rank_change_lookback
+    if analysis_preset:
+        summary = (
+            f"已应用预设 [{analysis_preset.key}]：动量窗口 {', '.join(str(win) for win in windows)} · "
+            f"Corr {corr_window} · Chop {chop_window} · 趋势 {trend_window} · 回溯 {rank_lookback}"
+        )
+        print(colorize(summary, "menu_hint"))
 
-    output_dir = input(
-        f"输出目录（默认 {defaults.output_dir}）: "
-    ).strip() or str(defaults.output_dir)
+    analysis_label = (
+        f"{analysis_preset.name} [{analysis_preset.key}]"
+        if analysis_preset
+        else "自定义分析"
+    )
 
     return {
         "codes": codes,
@@ -4885,6 +5289,7 @@ def _collect_parameters_interactive() -> Optional[dict]:
         "stability_window": _STABILITY_WINDOW,
         "stability_top_n": _STABILITY_TOP_N,
         "stability_weight": _STABILITY_WEIGHT,
+        "analysis_name": analysis_label,
     }
 
 
@@ -4935,15 +5340,10 @@ def _run_analysis_with_params(
     print(report_text)
     print("")
 
+    if params.get("make_plots"):
+        print(colorize("当前版本已禁用图表生成功能。", "warning"))
     if params.get("export_csv"):
-        output_dir = config.output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-        summary_path = output_dir / "momentum_summary.csv"
-        corr_path = output_dir / "momentum_correlation.csv"
-        result.summary.to_csv(summary_path, index=False)
-        result.correlation.to_csv(corr_path)
-        print(colorize(f"已导出汇总数据: {summary_path}", "value_positive"))
-        print(colorize(f"已导出相关矩阵: {corr_path}", "value_positive"))
+        print(colorize("当前版本已禁用 CSV 导出功能。", "warning"))
 
     if post_actions and preset and _prompt_yes_no("是否基于该预设运行简易回测？", False):
         _run_simple_backtest(result, preset)
@@ -4981,7 +5381,17 @@ def _run_analysis_with_params(
             print(colorize(f"已生成策略文件: {exported}", "value_positive"))
             print(colorize("可通过 rqalpha run -f <文件路径> 进行回测。", "menu_hint"))
 
-    return {
+    analysis_label = params.get("analysis_name")
+    if not analysis_label:
+        if preset:
+            analysis_label = f"{preset.name} [{preset.key}]"
+        elif bundle_context:
+            analysis_label = bundle_context
+        else:
+            analysis_label = "自定义分析"
+    params.setdefault("analysis_name", analysis_label)
+
+    state = {
         "result": result,
         "config": config,
         "momentum_config": momentum_config,
@@ -4989,7 +5399,12 @@ def _run_analysis_with_params(
         "params": params,
         "payload": payload,
         "report_text": report_text,
+        "title": analysis_label,
     }
+
+    _record_report_history(state, analysis_label, preset)
+
+    return state
 
 
 def _get_core_satellite_codes() -> tuple[List[str], List[str]]:
@@ -5110,10 +5525,11 @@ def _run_simple_backtest(result, preset: AnalysisPreset, top_n: int = 2) -> None
         return
     returns_df = close_df.pct_change().fillna(0)
 
-    momentum_df = result.momentum_scores.reindex(close_df.index).ffill().dropna(how="all")
-    if momentum_df.empty:
+    aligned_scores = result.momentum_scores.reindex(close_df.index).ffill()
+    if aligned_scores.dropna(how="all").empty:
         print(colorize("无法回测：动量得分为空。", "warning"))
         return
+    momentum_df = aligned_scores
 
     rebalance_dates = close_df.resample("ME").last().index
     if rebalance_dates.empty:
@@ -5155,8 +5571,14 @@ def _run_simple_backtest(result, preset: AnalysisPreset, top_n: int = 2) -> None
     print(colorize(f"夏普比率: {sharpe:.2f}", "accent" if sharpe > 0 else "warning"))
 
     if current_codes:
-        last_selection = ", ".join(current_codes)
-        print(colorize(f"最新持仓: {last_selection}", "menu_text"))
+        last_weights = weights.iloc[-1]
+        holding_lines: List[str] = []
+        for code in current_codes:
+            weight = float(last_weights.get(code, 0.0))
+            label = _format_label(code)
+            holding_lines.append(f"{label}: {weight:.1%}")
+        print(colorize("最新持仓结构:", "heading"))
+        print(colorize("; ".join(holding_lines), "menu_text"))
 
 
 def _core_satellite_portfolio_returns(
@@ -5433,6 +5855,7 @@ def _run_core_satellite_multi_backtest(last_state: Optional[dict] = None) -> Non
         print("")
         for message in warnings:
             print(colorize(f"提示: {message}", "warning"))
+    _wait_for_ack()
 
 
 
@@ -5544,22 +5967,26 @@ def _interactive_export_strategy(state: dict) -> None:
 
 def _interactive_list_templates() -> None:
     _print_template_list()
+    _wait_for_ack()
 
 
 def _interactive_run_template() -> dict | None:
     name = input(colorize("请输入模板名称: ", "prompt")).strip()
     if not name:
         print(colorize("未输入模板名称。", "warning"))
+        _wait_for_ack()
         return None
     template = _get_template_entry(name)
     if not template:
         print(colorize("未找到同名模板。", "warning"))
+        _wait_for_ack()
         return None
     params = _template_to_params(template)
     preset_key = params.get("analysis_preset")
     preset_obj = ANALYSIS_PRESETS.get(preset_key) if preset_key else None
     if preset_key and not preset_obj:
         print(colorize(f"模板引用的分析预设 {preset_key} 不存在，请更新模板后重试。", "warning"))
+        _wait_for_ack()
         return None
     params["analysis_preset"] = preset_obj
     if not params.get("codes") and params.get("presets"):
@@ -5571,17 +5998,19 @@ def _interactive_run_template() -> dict | None:
         params["codes"] = _dedup_codes(codes)
     if not params.get("codes"):
         print(colorize("模板未包含券池信息，无法运行分析。", "warning"))
+        _wait_for_ack()
         return None
     params.setdefault("chop_window", 14)
     params.setdefault("trend_window", 90)
     params.setdefault("rank_lookback", 5)
-    params.setdefault("make_plots", True)
+    params.setdefault("make_plots", False)
     params.setdefault("export_csv", False)
     params.setdefault("windows", (60, 120))
     params.setdefault("weights", None)
     params["lang"] = "zh"
+    params.setdefault("analysis_name", f"模板 {name}")
     try:
-        return _run_analysis_with_params(
+        result = _run_analysis_with_params(
             params,
             post_actions=False,
             bundle_context=f"模板 {name}",
@@ -5589,13 +6018,17 @@ def _interactive_run_template() -> dict | None:
         )
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"分析失败: {exc}", "danger"))
+        _wait_for_ack()
         return None
+    _wait_for_ack()
+    return result
 
 
 def _interactive_save_template(state: dict) -> None:
     name = input(colorize("请输入要保存的模板名称: ", "prompt")).strip()
     if not name:
         print(colorize("未输入模板名称。", "warning"))
+        _wait_for_ack()
         return
     payload = _build_template_payload(
         state["config"],
@@ -5610,19 +6043,23 @@ def _interactive_save_template(state: dict) -> None:
             print(colorize(f"已覆盖模板 {name}。", "info"))
         else:
             print(colorize("未保存模板。", "warning"))
+        _wait_for_ack()
         return
     print(colorize(f"模板 {name} 已保存。", "value_positive"))
+    _wait_for_ack()
 
 
 def _interactive_delete_template() -> None:
     name = input(colorize("请输入要删除的模板名称: ", "prompt")).strip()
     if not name:
         print(colorize("未输入模板名称。", "warning"))
+        _wait_for_ack()
         return
     if _delete_template_entry(name):
         print(colorize(f"已删除模板 {name}。", "value_positive"))
     else:
         print(colorize("未找到同名模板。", "warning"))
+    _wait_for_ack()
 
 
 def _print_template_details(name: str, payload: dict) -> None:
@@ -5636,10 +6073,6 @@ def _print_template_details(name: str, payload: dict) -> None:
     rank_lookback = payload.get("rank_lookback")
     presets = payload.get("presets") or []
     codes = payload.get("etfs") or []
-    output_dir = payload.get("output_dir") or "results"
-    make_plots = _coerce_bool(payload.get("make_plots"), True)
-    export_csv = _coerce_bool(payload.get("export_csv"), False)
-
     print(colorize(f"模板：{name}", "heading"))
     print(colorize(f"  区间: {start} → {end}", "menu_text"))
     window_text = ",".join(str(int(win)) for win in windows) if windows else "-"
@@ -5668,14 +6101,12 @@ def _print_template_details(name: str, payload: dict) -> None:
         subsequent_indent="         ",
     )
     print(colorize(wrapped_codes, "menu_hint"))
-    extra = f"图表:{'是' if make_plots else '否'} | CSV:{'是' if export_csv else '否'} | 输出:{output_dir}"
-    print(colorize(f"  {extra}", "menu_text"))
-
 
 def _interactive_edit_template_entry() -> None:
     store = _load_template_store()
     if not store:
         print(colorize("暂无模板可编辑。", "warning"))
+        _wait_for_ack()
         return
     names = sorted(store.keys())
     print(colorize("可编辑的模板：", "heading"))
@@ -5691,6 +6122,7 @@ def _interactive_edit_template_entry() -> None:
         target_name = choice
     if not target_name:
         print(colorize("未找到对应模板。", "warning"))
+        _wait_for_ack()
         return
     payload = dict(store[target_name])
     _print_template_details(target_name, payload)
@@ -5726,14 +6158,6 @@ def _interactive_edit_template_entry() -> None:
     if _prompt_yes_no("是否调整券池 ETF 列表？", False):
         codes = _edit_code_list_interactively(codes)
     codes = _dedup_codes(codes)
-    output_dir = _prompt_text_default("输出目录", payload.get("output_dir", "results"))
-    make_plots = _prompt_yes_no(
-        "默认生成图表？", _coerce_bool(payload.get("make_plots"), True)
-    )
-    export_csv = _prompt_yes_no(
-        "默认导出 CSV？", _coerce_bool(payload.get("export_csv"), False)
-    )
-
     new_payload = {
         "etfs": codes,
         "presets": preset_keys,
@@ -5746,25 +6170,28 @@ def _interactive_edit_template_entry() -> None:
         "chop_window": chop_window,
         "trend_window": trend_window,
         "rank_lookback": rank_lookback,
-        "make_plots": make_plots,
-        "output_dir": output_dir,
-        "export_csv": export_csv,
+        "make_plots": False,
+        "output_dir": "results",
+        "export_csv": False,
     }
     if new_name != target_name and new_name in store:
         if not _prompt_yes_no("同名模板已存在，是否覆盖？", False):
             print(colorize("已取消编辑。", "warning"))
+            _wait_for_ack()
             return
     if target_name in store:
         del store[target_name]
     store[new_name] = new_payload
     _write_template_store(store)
     print(colorize(f"模板 {new_name} 已更新。", "value_positive"))
+    _wait_for_ack()
 
 
 def _interactive_clone_template_entry() -> None:
     store = _load_template_store()
     if not store:
         print(colorize("暂无模板可复制。", "warning"))
+        _wait_for_ack()
         return
     names = sorted(store.keys())
     print(colorize("请选择要复制的模板：", "heading"))
@@ -5780,19 +6207,23 @@ def _interactive_clone_template_entry() -> None:
         source_name = choice
     if not source_name:
         print(colorize("未找到对应模板。", "warning"))
+        _wait_for_ack()
         return
     new_name_raw = input(colorize("请输入新模板名称: ", "prompt")).strip()
     if not new_name_raw:
         print(colorize("未输入新模板名称。", "warning"))
+        _wait_for_ack()
         return
     new_name = new_name_raw
     if new_name in store and not _prompt_yes_no("同名模板已存在，是否覆盖？", False):
         print(colorize("已取消复制。", "warning"))
+        _wait_for_ack()
         return
     payload = json.loads(json.dumps(store[source_name], ensure_ascii=False))
     store[new_name] = payload
     _write_template_store(store)
     print(colorize(f"已复制模板 {source_name} → {new_name}。", "value_positive"))
+    _wait_for_ack()
 
 
 def _show_template_settings_menu() -> None:
@@ -5808,7 +6239,7 @@ def _show_template_settings_menu() -> None:
             options,
             title="┌─ 模板设置 ─" + "─" * 22,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="0",
         )
         if choice == "1":
@@ -5847,7 +6278,7 @@ def _show_history_menu(last_state: Optional[dict]) -> Optional[dict]:
             options,
             title="┌─ 动量回溯 / 图表 ─" + "─" * 16,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="1",
         )
         if choice == "1":
@@ -5861,6 +6292,7 @@ def _show_history_menu(last_state: Optional[dict]) -> Optional[dict]:
             continue
         if choice == "4":
             _display_analysis_summary(current_state)
+            _wait_for_ack()
             continue
         if choice == "5":
             refreshed = _run_quick_analysis(post_actions=False)
@@ -5870,6 +6302,7 @@ def _show_history_menu(last_state: Optional[dict]) -> Optional[dict]:
                 print(colorize("已使用最新数据完成快速分析。", "value_positive"))
             else:
                 print(colorize("刷新失败，请稍后再试或运行自定义分析。", "danger"))
+            _wait_for_ack()
             continue
         if choice in {"0", "__escape__"}:
             return current_state
@@ -5886,15 +6319,16 @@ def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
         options = [
             {"key": "1", "label": "简易动量回测（当前参数）"},
             {"key": "2", "label": "核心-卫星多区间回测"},
-            {"key": "3", "label": "导出策略脚本（当前参数）"},
-            {"key": "4", "label": "刷新数据（运行快速分析）"},
+            {"key": "3", "label": "动量回溯 / 图表"},
+            {"key": "4", "label": "导出策略脚本（当前参数）"},
+            {"key": "5", "label": "刷新数据（运行快速分析）"},
             {"key": "0", "label": "返回上级菜单"},
         ]
         choice = _prompt_menu_choice(
             options,
-            title="┌─ 回测工具 ─" + "─" * 20,
+            title="┌─ 回测与动量工具 ─" + "─" * 14,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="1",
         )
         if choice == "1":
@@ -5904,9 +6338,14 @@ def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
             _run_core_satellite_multi_backtest(current_state)
             continue
         if choice == "3":
-            _interactive_export_strategy(current_state)
+            new_state = _show_history_menu(current_state)
+            if new_state:
+                current_state = new_state
             continue
         if choice == "4":
+            _interactive_export_strategy(current_state)
+            continue
+        if choice == "5":
             refreshed = _run_quick_analysis(post_actions=False)
             if refreshed:
                 current_state = refreshed
@@ -5914,6 +6353,7 @@ def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
                 print(colorize("已使用最新数据完成快速分析。", "value_positive"))
             else:
                 print(colorize("刷新失败，请稍后再试或运行自定义分析。", "danger"))
+            _wait_for_ack()
             continue
         if choice in {"0", "__escape__"}:
             return current_state
@@ -5938,7 +6378,7 @@ def _show_templates_menu(last_state: Optional[dict]) -> Optional[dict]:
             options,
             title="┌─ 模板管理 ─" + "─" * 20,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="1",
         )
         if choice == "1":
@@ -5983,7 +6423,7 @@ def _show_settings_menu() -> None:
             options,
             title="┌─ 设置与工具 ─" + "─" * 20,
             header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 返回",
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="1",
         )
         if choice == "1":
@@ -6070,6 +6510,7 @@ def _run_quick_analysis(post_actions: bool = False) -> dict | None:
         "analysis_preset": preset,
         "presets": preset_tags,
         "lang": "zh",
+        "analysis_name": f"快速分析 · {preset.name}",
     }
     return _run_analysis_with_params(
         params,
@@ -6096,87 +6537,219 @@ def _ensure_analysis_state(
         refreshed = _run_quick_analysis(post_actions=False)
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"自动分析失败: {exc}", "danger"))
+        _wait_for_ack()
         return None
+    _wait_for_ack()
     if refreshed:
         return refreshed
     print(colorize("快速分析未返回有效结果，请先运行一次自定义分析。", "danger"))
+    _wait_for_ack()
     return None
 
 
-def run_interactive() -> int:
-    _set_color_enabled(sys.stdout.isatty())
-    banner_top = colorize("╔" + "═" * 34 + "╗", "border")
-    mid_content = " Momentum CLI 交互模式 "
-    banner_mid = colorize("║" + mid_content.center(34) + "║", "title")
-    banner_bot = colorize("╚" + "═" * 34 + "╝", "border")
-    banner_lines = ["", banner_top, banner_mid, banner_bot, ""]
-    last_state: dict | None = None
+def _show_about() -> None:
+    print("")
+    print(colorize(f"{APP_NAME} {APP_VERSION}", "heading"))
+    print(colorize("面向量化复盘的 ETF 动量分析与回测工具。", "menu_text"))
+    print(colorize("主要特性:", "menu_hint"))
+    for bullet in (
+        "快速分析核心/卫星券池并给出动量预警",
+        "交互式 Plotly 图表、策略导出与多区间回测",
+        "可配置模板、阈值与配色，适合定制流程",
+    ):
+        print(colorize(f" - {bullet}", "menu_text"))
+    print(colorize("项目主页:", "menu_hint"))
+    print(colorize(f" {REPO_URL}", "menu_text"))
+    print(colorize("作者: Momentum Lens 开发团队", "menu_hint"))
+    print("")
+
+
+def _record_report_history(state: dict, label: str, preset: AnalysisPreset | None) -> None:
+    if not _INTERACTIVE_MODE:
+        return
+    config = state.get("config")
+    if not isinstance(config, AnalysisConfig):
+        return
+    timeframe_start = config.start_date or "最早可用"
+    timeframe_end = config.end_date or "最新"
+    timeframe = f"{timeframe_start} → {timeframe_end}"
+    etf_count = len(config.etfs)
+    preset_label = f"{preset.name} [{preset.key}]" if preset else None
+    timestamp = dt.datetime.now()
+    if _REPORT_HISTORY and _REPORT_HISTORY[-1].get("state") is state:
+        _REPORT_HISTORY[-1].update(
+            {
+                "label": label,
+                "timeframe": timeframe,
+                "timestamp": timestamp,
+                "preset": preset_label,
+                "etf_count": etf_count,
+            }
+        )
+        return
+    entry = {
+        "label": label,
+        "timeframe": timeframe,
+        "timestamp": timestamp,
+        "preset": preset_label,
+        "etf_count": etf_count,
+        "state": state,
+    }
+    _REPORT_HISTORY.append(entry)
+    if len(_REPORT_HISTORY) > _MAX_REPORT_HISTORY:
+        _REPORT_HISTORY.pop(0)
+
+
+def _show_report_history(last_state: Optional[dict]) -> Optional[dict]:
+    if not _REPORT_HISTORY:
+        if last_state:
+            report = last_state.get("report_text")
+            if report:
+                print(report)
+            else:
+                _display_analysis_summary(last_state)
+            _wait_for_ack()
+            return last_state
+        print(colorize("暂无分析报告可回顾。", "warning"))
+        _wait_for_ack()
+        return last_state
+
     while True:
-        options = [
-            {"key": "1", "label": "快速分析（核心+卫星 · slow-core）"},
-            {"key": "2", "label": "自定义运行动量分析"},
-            {"key": "3", "label": "动量回溯 / 图表"},
-            {"key": "4", "label": "回测工具"},
-            {"key": "5", "label": "模板管理"},
-            {"key": "6", "label": "更新数据（rqalpha bundle）"},
-            {"key": "7", "label": "设置与工具"},
-            {"key": "0", "label": "退出"},
-        ]
+        history_items = list(reversed(_REPORT_HISTORY))
+        options: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(history_items, start=1):
+            timestamp = entry["timestamp"].strftime(_REPORT_TIMESTAMP_FMT)
+            label = f"{timestamp} · {entry['label']}"
+            extra_lines = [
+                colorize(
+                    f"    区间: {entry['timeframe']} · ETF 数量: {entry['etf_count']}",
+                    "menu_hint",
+                )
+            ]
+            if entry.get("preset"):
+                extra_lines.append(
+                    colorize(f"    预设: {entry['preset']}", "dim")
+                )
+            options.append(
+                {
+                    "key": str(idx),
+                    "label": label,
+                    "extra_lines": extra_lines,
+                }
+            )
+        options.append({"key": "0", "label": "返回上级菜单"})
         choice = _prompt_menu_choice(
             options,
-            title="┌─ 功能清单 ─" + "─" * 24,
-            header_lines=banner_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 退出",
+            title="┌─ 报告回顾 ─" + "─" * 22,
+            header_lines=[""],
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
             default_key="1",
         )
         if choice in {"0", "__escape__"}:
-            print(colorize("再见，祝投资顺利！", "info"))
-            return 0
-        if choice == "1":
-            try:
-                state = _run_quick_analysis(post_actions=False)
-            except Exception as exc:  # noqa: BLE001
-                print(colorize(f"分析失败: {exc}", "danger"))
+            return last_state
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(history_items):
+                selected = history_items[idx - 1]["state"]
+                report = selected.get("report_text")
+                print("")
+                if report:
+                    print(report)
+                else:
+                    _display_analysis_summary(selected)
+                _wait_for_ack()
+                last_state = selected
                 continue
-            if state:
-                last_state = state
-            continue
-        if choice == "2":
-            params = _collect_parameters_interactive()
-            if not params:
-                continue
-            try:
-                last_state = _run_analysis_with_params(
-                    params,
-                    post_actions=False,
-                    bundle_context="自定义分析",
-                    bundle_interactive=True,
-                )
-            except Exception as exc:  # noqa: BLE001
-                print(colorize(f"分析失败: {exc}", "danger"))
-            continue
-        if choice == "3":
-            new_state = _show_history_menu(last_state)
-            if new_state:
-                last_state = new_state
-            continue
-        if choice == "4":
-            new_state = _show_backtest_menu(last_state)
-            if new_state:
-                last_state = new_state
-            continue
-        if choice == "5":
-            new_state = _show_templates_menu(last_state)
-            if new_state is not None:
-                last_state = new_state
-            continue
-        if choice == "6":
-            _update_data_bundle()
-            continue
-        if choice == "7":
-            _show_settings_menu()
-            continue
         print(colorize("无效指令，请重新选择。", "warning"))
+
+
+def run_interactive() -> int:
+    global _INTERACTIVE_MODE
+    _INTERACTIVE_MODE = True
+    try:
+        _set_color_enabled(sys.stdout.isatty())
+        banner_top = colorize("╔" + "═" * 34 + "╗", "border")
+        mid_content = f" {APP_NAME} 交互模式 "
+        banner_mid = colorize("║" + mid_content.center(34) + "║", "title")
+        banner_bot = colorize("╚" + "═" * 34 + "╝", "border")
+        banner_lines = ["", banner_top, banner_mid, banner_bot, ""]
+        last_state: dict | None = None
+        while True:
+            options = [
+                {"key": "1", "label": "快速分析（核心+卫星 · slow-core）"},
+                {"key": "2", "label": "自定义运行动量分析"},
+                {"key": "3", "label": "回测与动量工具"},
+                {"key": "4", "label": "模板管理"},
+                {"key": "5", "label": "报告回顾"},
+                {"key": "6", "label": "更新数据（rqalpha bundle）"},
+                {"key": "7", "label": "设置与工具"},
+                {"key": "8", "label": "关于 Momentum Lens"},
+                {"key": "0", "label": "退出"},
+            ]
+            choice = _prompt_menu_choice(
+                options,
+                title="┌─ 功能清单 ─" + "─" * 24,
+                header_lines=banner_lines,
+                hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC 退出",
+                default_key="1",
+            )
+            if choice in {"0", "__escape__"}:
+                print(colorize("再见，祝投资顺利！", "info"))
+                return 0
+            if choice == "1":
+                try:
+                    state = _run_quick_analysis(post_actions=False)
+                except Exception as exc:  # noqa: BLE001
+                    print(colorize(f"分析失败: {exc}", "danger"))
+                    _wait_for_ack()
+                    continue
+                if state:
+                    last_state = state
+                _wait_for_ack()
+                continue
+            if choice == "2":
+                params = _collect_parameters_interactive()
+                if not params:
+                    continue
+                try:
+                    last_state = _run_analysis_with_params(
+                        params,
+                        post_actions=False,
+                        bundle_context="自定义分析",
+                        bundle_interactive=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(colorize(f"分析失败: {exc}", "danger"))
+                    _wait_for_ack()
+                else:
+                    _wait_for_ack()
+                continue
+            if choice == "3":
+                new_state = _show_backtest_menu(last_state)
+                if new_state:
+                    last_state = new_state
+                continue
+            if choice == "4":
+                new_state = _show_templates_menu(last_state)
+                if new_state is not None:
+                    last_state = new_state
+                continue
+            if choice == "5":
+                last_state = _show_report_history(last_state)
+                continue
+            if choice == "6":
+                _update_data_bundle()
+                continue
+            if choice == "7":
+                _show_settings_menu()
+                continue
+            if choice == "8":
+                _show_about()
+                _wait_for_ack()
+                continue
+            print(colorize("无效指令，请重新选择。", "warning"))
+    finally:
+        _INTERACTIVE_MODE = False
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -6345,13 +6918,15 @@ def main(argv: Iterable[str] | None = None) -> int:
         rank_lookback if rank_lookback is not None else default_rank_lookback
     )
 
-    make_plots = True
-    if args.no_plot:
-        make_plots = False
-    elif "make_plots" in template_data:
-        make_plots = bool(template_data["make_plots"])
+    make_plots = False
+    if (not args.no_plot) and template_data.get("make_plots"):
+        if not args.quiet:
+            print("[warning] 图表生成功能已禁用。")
 
     export_csv = args.export_csv or template_data.get("export_csv", False)
+    if export_csv and not args.quiet:
+        print("[warning] CSV 导出功能已禁用。")
+    export_csv = False
 
     output_dir = args.output_dir
     tpl_output_dir = template_data.get("output_dir")
@@ -6396,7 +6971,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         rank_change_lookback=rank_lookback,
         bundle_path=args.bundle_path,
         output_dir=output_dir,
-        make_plots=make_plots,
+        make_plots=False,
         momentum_percentile_lookback=_MOMENTUM_SIGNIFICANCE_LOOKBACK,
         momentum_significance_threshold=_MOMENTUM_SIGNIFICANCE_THRESHOLD,
         trend_consistency_adx_threshold=_TREND_CONSISTENCY_ADX,
@@ -6418,20 +6993,6 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 1
 
     payload = _build_result_payload(result, config, momentum_config, analysis_preset, args.lang)
-
-    if export_csv:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        summary_path = output_dir / "momentum_summary.csv"
-        corr_path = output_dir / "momentum_correlation.csv"
-        result.summary.to_csv(summary_path, index=False)
-        result.correlation.to_csv(corr_path)
-        if not args.quiet:
-            if args.lang == "zh":
-                print(f"已导出汇总数据: {summary_path}")
-                print(f"已导出相关矩阵: {corr_path}")
-            else:
-                print(f"Exported summary to {summary_path}")
-                print(f"Exported correlation to {corr_path}")
 
     if args.output_format == "json":
         rendered_output = json.dumps(payload, ensure_ascii=False, indent=2)

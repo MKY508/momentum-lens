@@ -1,4 +1,4 @@
-# momentum-len
+# momentum-lens
 
 组合核心/卫星 ETF 的动量分析工具，基于本地 RQAlpha 数据包运行，提供交互式图表、预警提示以及模板化配置，适合量化交易与定期资产复盘。
 
@@ -16,7 +16,7 @@
 
 ```bash
 # 克隆或复制项目后，初始化 Git 仓库（如尚未初始化）
-cd /path/to/momentum-len
+cd /path/to/momentum-lens
 git init
 
 # 建议将默认分支改为 main
@@ -42,27 +42,30 @@ source .venv/bin/activate
 # 确保 ~/.local/bin 已加入 PATH
 ```
 
-脚本会把 `momentum.sh` 链接为 `~/.local/bin/momentum`，之后可直接使用 `momentum` 命令。
+脚本会把 `momentum_lens.sh` 链接为 `~/.local/bin/momentum-lens`，之后可直接使用 `momentum-lens` 命令。
 
 ## 快速开始
 
 ```bash
 # 快速分析（核心 + 卫星）
-momentum
+momentum-lens
 
 # 自定义分析
-momentum analyze --preset core --start 2024-01-01 --end 2024-12-31 --no-plot
+momentum-lens analyze --preset core --start 2024-01-01 --end 2024-12-31 --no-plot
 
-# 更新 RQAlpha 数据包momentum update-bundle
+# 更新 RQAlpha 数据包
+momentum-lens update-bundle
 ```
 
 进入交互式菜单后，依次可访问：
 
-1. 快速分析 / 自定义运行动量分析
-2. 动量回溯与 Plotly 图表
-3. 最近一次分析摘要 / 回测 / 策略导出
+1. 快速分析（核心+卫星）
+2. 自定义运行动量分析
+3. 回测与动量工具（简易回测、多区间回测、动量回溯、策略导出）
 4. 模板管理（列出、运行、保存、删除）
-5. 设置与工具：
+5. 报告回顾（查看最近生成的分析文本）
+6. 更新数据（rqalpha bundle）
+7. 设置与工具：
    - 券池预设管理（新增、编辑、恢复默认）
    - 分析预设管理
    - 模板设置
@@ -71,6 +74,7 @@ momentum analyze --preset core --start 2024-01-01 --end 2024-12-31 --no-plot
    - Plotly 及其他依赖安装
    - 数据包更新
    - 清理生成文件
+8. 关于 Momentum Lens（版本信息、项目主页）
 
 ## 预警说明
 
@@ -95,17 +99,17 @@ momentum analyze --preset core --start 2024-01-01 --end 2024-12-31 --no-plot
 
 ## 数据维护
 
-- **更新 RQAlpha 数据包**：`momentum update-bundle`
-- **安装 Plotly**：`momentum install-deps`（或在设置菜单执行）
+- **更新 RQAlpha 数据包**：`momentum-lens update-bundle`
+- **安装 Plotly**：`momentum-lens install-deps`（或在设置菜单执行）
 - **清理输出**：设置菜单中的“清理生成文件”，按需删除 `results/`、导出的策略等。
 
 ## GitHub 仓库发布
 
-推荐仓库名称：`momentum-len`
+推荐仓库名称：`momentum-lens`
 
 ```bash
 # 添加远程（示例）
-git remote add origin git@github.com:<your-user>/momentum-len.git
+git remote add origin git@github.com:<your-user>/momentum-lens.git
 
 # 首次推送
 git add .
@@ -118,12 +122,12 @@ git push -u origin main
 ## 目录结构
 
 ```
-momentum-len/
-├── momentum.sh                # CLI 入口
+momentum-lens/
+├── momentum_lens.sh           # CLI 入口
 ├── momentum_cli/              # 动量分析核心 Python 包
 ├── scripts/
 │   ├── setup.sh               # 创建虚拟环境并安装依赖
-│   └── link_cli.sh            # 将 momentum CLI 链接到 PATH
+│   └── link_cli.sh            # 将 momentum-lens CLI 链接到 PATH
 ├── requirements.txt
 ├── README.md
 └── .gitignore
