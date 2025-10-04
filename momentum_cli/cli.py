@@ -66,7 +66,7 @@ SETTINGS_STORE_PATH = Path(__file__).resolve().parent / "cli_settings.json"
 
 APP_NAME = "Momentum Lens"
 APP_VERSION = "0.9.0"
-REPO_URL = "https://github.com/your-org/momentum-lens"
+REPO_URL = "https://github.com/MKY508/momentum-lens"
 LAUNCHER_BASENAME = "momentum_lens.sh"
 LAUNCHER_COMMAND = f"./{LAUNCHER_BASENAME}"
 
@@ -1841,6 +1841,56 @@ def _render_menu_block(
     return physical_lines if physical_lines > 0 else len(lines)
 
 
+def _clear_screen() -> None:
+    if not sys.stdout.isatty():
+        return
+    sys.stdout.write("\033[H\033[2J")
+    sys.stdout.flush()
+
+
+def _erase_menu_block(lines: int) -> None:
+    if lines <= 0:
+        return
+    sys.stdout.write("\r")
+    if lines > 1:
+        sys.stdout.write("\033[F" * (lines - 1))
+    sys.stdout.write("\033[J")
+    sys.stdout.flush()
+
+
+def _print_menu_static(
+    options: Sequence[dict],
+    *,
+    header_lines: Sequence[str] | None,
+    title: Optional[str],
+    hint: Optional[str],
+    footer_lines: Sequence[str] | None,
+    clear_screen: bool = False,
+) -> None:
+    if clear_screen:
+        _clear_screen()
+    if header_lines:
+        for line in header_lines:
+            print(line)
+    if title:
+        divider_text = title if "\x1b[" in title else colorize(title, "divider")
+        print(divider_text)
+    for option in options:
+        print(
+            _format_menu_item(
+                option["display"], option["label"], enabled=option["enabled"]
+            )
+        )
+        for extra in option.get("extra_lines", []):
+            print(extra)
+    if hint:
+        hint_line = hint if "\x1b[" in hint else colorize(hint, "menu_hint")
+        print(hint_line)
+    if footer_lines:
+        for line in footer_lines:
+            print(line)
+
+
 def _prompt_menu_choice(
     options: Sequence[Dict[str, Any]],
     *,
@@ -1853,6 +1903,7 @@ def _prompt_menu_choice(
     allow_escape: bool = True,
     instant_numeric: bool = True,
     escape_prompt: Optional[str] = None,
+    clear_screen: bool = False,
 ) -> str:
     normalized: List[dict] = []
     for option in options:
@@ -1869,24 +1920,14 @@ def _prompt_menu_choice(
         )
 
     if not _supports_interactive_menu():
-        if header_lines:
-            for line in header_lines:
-                print(line)
-        if title:
-            print(colorize(title, "divider"))
-        for option in normalized:
-            print(
-                _format_menu_item(
-                    option["display"], option["label"], enabled=option["enabled"]
-                )
-            )
-            for extra in option["extra_lines"]:
-                print(extra)
-        if hint:
-            print(colorize(hint, "menu_hint"))
-        if footer_lines:
-            for line in footer_lines:
-                print(line)
+        _print_menu_static(
+            normalized,
+            header_lines=header_lines,
+            title=title,
+            hint=hint,
+            footer_lines=footer_lines,
+            clear_screen=clear_screen,
+        )
         raw = input(colorize(prompt_text, "prompt")).strip()
         if not raw and default_key is not None:
             return default_key
@@ -1894,24 +1935,14 @@ def _prompt_menu_choice(
 
     enabled_indices = [idx for idx, option in enumerate(normalized) if option["enabled"]]
     if not enabled_indices:
-        if header_lines:
-            for line in header_lines:
-                print(line)
-        if title:
-            print(colorize(title, "divider"))
-        for option in normalized:
-            print(
-                _format_menu_item(
-                    option["display"], option["label"], enabled=option["enabled"]
-                )
-            )
-            for extra in option["extra_lines"]:
-                print(extra)
-        if hint:
-            print(colorize(hint, "menu_hint"))
-        if footer_lines:
-            for line in footer_lines:
-                print(line)
+        _print_menu_static(
+            normalized,
+            header_lines=header_lines,
+            title=title,
+            hint=hint,
+            footer_lines=footer_lines,
+            clear_screen=clear_screen,
+        )
         return input(colorize(prompt_text, "prompt")).strip()
 
     selected_index = enabled_indices[0]
@@ -1921,12 +1952,23 @@ def _prompt_menu_choice(
             selected_index = default_idx
     pending = ""
     rendered_physical_lines = 0
+
+    def finalize(result: str) -> str:
+        nonlocal rendered_physical_lines
+        if rendered_physical_lines:
+            _erase_menu_block(rendered_physical_lines)
+            rendered_physical_lines = 0
+        sys.stdout.flush()
+        return result
+
     while True:
         if rendered_physical_lines:
             sys.stdout.write("\r")
             if rendered_physical_lines > 1:
                 sys.stdout.write("\033[F" * (rendered_physical_lines - 1))
             sys.stdout.write("\033[J")
+        elif clear_screen:
+            _clear_screen()
         rendered_physical_lines = _render_menu_block(
             header_lines=header_lines,
             title=title,
@@ -1939,7 +1981,17 @@ def _prompt_menu_choice(
         )
         key = _read_keypress()
         if key is None:
-            sys.stdout.write("\n")
+            if rendered_physical_lines:
+                _erase_menu_block(rendered_physical_lines)
+                rendered_physical_lines = 0
+            _print_menu_static(
+                normalized,
+                header_lines=header_lines,
+                title=title,
+                hint=hint,
+                footer_lines=footer_lines,
+                clear_screen=clear_screen,
+            )
             raw = input(colorize(prompt_text, "prompt")).strip()
             return raw or (default_key or "")
         if key in {"UP", "LEFT"}:
@@ -1961,14 +2013,12 @@ def _prompt_menu_choice(
                 pending = ""
             option = normalized[selected_index]
             if option["enabled"]:
-                sys.stdout.write("\n")
-                return option["key"]
+                return finalize(option["key"])
             continue
         if key == "ESC":
-            sys.stdout.write("\n")
             if allow_escape:
-                return "__escape__"
-            return default_key or ""
+                return finalize("__escape__")
+            return finalize(default_key or "")
         if len(key) == 1:
             lower = key.lower()
             if lower in {"k"}:
@@ -1982,18 +2032,15 @@ def _prompt_menu_choice(
             if lower == "q" and allow_escape:
                 zero_idx = _find_option_by_key(normalized, "0")
                 if zero_idx is not None and normalized[zero_idx]["enabled"]:
-                    sys.stdout.write("\n")
-                    return normalized[zero_idx]["key"]
-                sys.stdout.write("\n")
-                return "__escape__"
+                    return finalize(normalized[zero_idx]["key"])
+                return finalize("__escape__")
             if lower.isdigit():
                 pending += lower
                 exact_match = _find_option_by_key(normalized, pending)
                 if exact_match is not None and normalized[exact_match]["enabled"]:
                     selected_index = exact_match
                     if instant_numeric:
-                        sys.stdout.write("\n")
-                        return normalized[exact_match]["key"]
+                        return finalize(normalized[exact_match]["key"])
                     continue
                 prefix_match = _find_option_by_prefix(normalized, pending)
                 if prefix_match is not None:
@@ -2004,8 +2051,7 @@ def _prompt_menu_choice(
                 if exact_match is not None and normalized[exact_match]["enabled"]:
                     selected_index = exact_match
                     if instant_numeric:
-                        sys.stdout.write("\n")
-                        return normalized[exact_match]["key"]
+                        return finalize(normalized[exact_match]["key"])
                     continue
                 pending = ""
                 continue
@@ -6560,7 +6606,7 @@ def _show_about() -> None:
         print(colorize(f" - {bullet}", "menu_text"))
     print(colorize("项目主页:", "menu_hint"))
     print(colorize(f" {REPO_URL}", "menu_text"))
-    print(colorize("作者: Momentum Lens 开发团队", "menu_hint"))
+    print(colorize("作者: mky508", "menu_hint"))
     print("")
 
 
