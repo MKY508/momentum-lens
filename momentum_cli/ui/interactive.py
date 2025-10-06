@@ -133,6 +133,10 @@ def _handle_interactive_menu(
         for line in header_lines:
             print(line)
             header_line_count += 1
+
+    # 在标题后留出一行空行，作为菜单渲染区域的起始行
+    print("")
+
     # 在此处保存“菜单起始位置”的锚点（不再清除其上的内容）
     print("\033[s", end="")  # ANSI Save Cursor Position
 
