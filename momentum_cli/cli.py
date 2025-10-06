@@ -718,21 +718,8 @@ def _collect_alerts(result) -> dict:
     }
 
 
-def _chop_state_label(state: Optional[str], lang: str) -> Optional[str]:
-    mapping = {
-        "strong_trend": {"zh": "强趋势", "en": "Strong Trend"},
-        "trend_breakout": {"zh": "趋势启动", "en": "Trend Breakout"},
-        "trend": {"zh": "趋势", "en": "Trend"},
-        "range": {"zh": "盘整", "en": "Range"},
-        "range_watch": {"zh": "盘整观察", "en": "Range Watch"},
-        "neutral": {"zh": "中性", "en": "Neutral"},
-    }
-    if not state:
-        return None
-    record = mapping.get(state)
-    if not record:
-        return None
-    return record.get(lang, record.get("en"))
+# 迁移至 utils.formatters
+from .utils import chop_state_label as _chop_state_label
 
 
 def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
@@ -1009,18 +996,8 @@ def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
 # 显示和解析相关函数已移至 utils 模块
 
 
-def _adx_state_label(state: Optional[str], lang: str) -> Optional[str]:
-    mapping = {
-        "weak": {"zh": "趋势弱", "en": "Weak"},
-        "setup": {"zh": "趋势初现", "en": "Emerging"},
-        "strong": {"zh": "趋势强", "en": "Strong"},
-    }
-    if not state:
-        return None
-    record = mapping.get(state)
-    if not record:
-        return None
-    return record.get(lang, record.get("en"))
+# 移至 utils.formatters
+from .utils import adx_state_label as _adx_state_label
 
 
 def _style_summary_value(label: str, value: str, row: dict) -> str:
@@ -1142,13 +1119,10 @@ def _style_summary_value(label: str, value: str, row: dict) -> str:
     return value
 
 
+# 迁移至 utils.formatters，保留兼容层
 def _style_rank_header(rank: int, text: str) -> str:
-    if not _COLOR_ENABLED:
-        return text
-    style = _rank_style(rank)
-    if style:
-        return colorize(text, style)
-    return text
+    from .utils import style_rank_header
+    return style_rank_header(rank, text, enable_color=_COLOR_ENABLED)
 
 
 def _format_menu_item(
