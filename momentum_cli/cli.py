@@ -1911,6 +1911,13 @@ def _prepare_summary_table(
 
     return _normalize_column_specs(columns), rows
 
+# Overwrite with utils implementation (kept above for reference during transition)
+from .utils import prepare_summary_table as _utils_prepare_summary_table
+
+def _prepare_summary_table(frame: pd.DataFrame, lang: str):
+    return _utils_prepare_summary_table(frame, lang)
+
+
 
 # moved to utils.formatters
 from .utils import formatters as _fmt_utils
