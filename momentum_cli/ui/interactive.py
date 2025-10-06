@@ -125,7 +125,7 @@ def _handle_interactive_menu(
     """处理交互模式的菜单"""
     menu_state = MenuState(options)
     pending = ""
-    rendered_total_lines = 0
+    previous_lines = 0
 
     # 打印头部（只打印一次）
     header_line_count = 0
@@ -134,15 +134,12 @@ def _handle_interactive_menu(
             print(line)
             header_line_count += 1
 
-    # 在标题后留出一行空行，作为菜单渲染区域的起始行
-    print("")
-
-    # 在此处保存“菜单起始位置”的锚点（不再清除其上的内容）
-    print("\033[s", end="")  # ANSI Save Cursor Position
-
     while True:
-        # 清空菜单区域（不影响上方 banner/头部）
-        print("\033[u\033[J", end="", flush=True)
+        # 清除上一次渲染的内容
+        if previous_lines > 0:
+            sys.stdout.write(f"\033[{previous_lines}A")
+            sys.stdout.write("\033[J")
+            sys.stdout.flush()
 
         # 渲染菜单
         menu_lines = []
@@ -168,19 +165,23 @@ def _handle_interactive_menu(
                 footer_line_count += 1
 
         # 打印输入提示
-        print(colorize(prompt_text, "prompt"), end="", flush=True)
+        sys.stdout.write(colorize(prompt_text, "prompt"))
+        sys.stdout.flush()
 
-        rendered_total_lines = len(menu_lines) + footer_line_count + 1
+        # 记录本次渲染的总行数
+        current_lines = len(menu_lines) + footer_line_count + 1
+        previous_lines = current_lines
 
         # 读取按键
         key = read_keypress()
         if key is None:
             # 回退到非交互模式
-            # 清除所有渲染（包括头部）
-            if rendered_total_lines > 0:
-                print(f"\033[{rendered_total_lines}A\r\033[J", end="", flush=True)
+            if previous_lines > 0:
+                sys.stdout.write(f"\033[{previous_lines}A\033[J")
+                sys.stdout.flush()
             if header_line_count > 0:
-                print(f"\033[{header_line_count}A\r\033[J", end="", flush=True)
+                sys.stdout.write(f"\033[{header_line_count}A\033[J")
+                sys.stdout.flush()
 
             return _handle_non_interactive_menu(
                 options, title, header_lines, hint, footer_lines,
@@ -195,16 +196,14 @@ def _handle_interactive_menu(
 
         if isinstance(result, str):
             # 清除渲染
-            if rendered_total_lines > 0:
-                print(f"\033[{rendered_total_lines}A\r\033[J", end="", flush=True)
+            if previous_lines > 0:
+                sys.stdout.write(f"\033[{previous_lines}A\033[J")
+                sys.stdout.flush()
             return result
         elif isinstance(result, dict):
             # 更新状态
             pending = result.get("pending", pending)
         # 否则继续循环
-
-
-
 
 
 def _process_menu_key(
