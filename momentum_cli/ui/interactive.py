@@ -133,12 +133,12 @@ def _handle_interactive_menu(
         for line in header_lines:
             print(line)
             header_line_count += 1
+    # 在此处保存“菜单起始位置”的锚点（不再清除其上的内容）
+    print("\033[s", end="")  # ANSI Save Cursor Position
 
     while True:
-        # 擦除之前的渲染（包括菜单和底部）
-        if rendered_total_lines > 0:
-            # 移动光标到菜单起始行（包含提示行）并清除本区域
-            print(f"\033[{rendered_total_lines}A\r\033[J", end="", flush=True)
+        # 清空菜单区域（不影响上方 banner/头部）
+        print("\033[u\033[J", end="", flush=True)
 
         # 渲染菜单
         menu_lines = []
