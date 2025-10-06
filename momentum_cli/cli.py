@@ -14,7 +14,6 @@ import sys
 import shutil
 import textwrap
 import time
-import unicodedata
 import webbrowser
 from dataclasses import asdict
 from pathlib import Path
@@ -34,11 +33,6 @@ except ImportError:  # pragma: no cover - non-Windows
 
 import numpy as np
 import pandas as pd
-
-try:
-    from wcwidth import wcswidth as _wcwidth_wcswidth
-except ImportError:  # pragma: no cover - optional dependency
-    _wcwidth_wcswidth = None
 
 from .analysis import AnalysisConfig, analyze
 from .analysis_presets import (
@@ -60,6 +54,12 @@ from .presets import (
     reset_preset,
     upsert_preset,
 )
+from .utils.display import display_width as _display_width
+from .utils.display import pad_display as _pad_display
+from .utils.display import strip_ansi as _strip_ansi
+from .utils.parsers import extract_float as _extract_float
+from .utils.parsers import parse_bundle_version as _parse_bundle_version
+from .utils.parsers import try_parse_datetime as _try_parse_datetime
 
 
 SETTINGS_STORE_PATH = Path(__file__).resolve().parent / "cli_settings.json"
@@ -633,46 +633,7 @@ def _set_color_enabled(flag: bool) -> None:
     _COLOR_ENABLED = bool(flag)
 
 
-def _try_parse_datetime(value: str) -> Optional[dt.datetime]:
-    if not value:
-        return None
-    normalized = value.strip()
-    if not normalized:
-        return None
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1] + "+00:00"
-    try:
-        return dt.datetime.fromisoformat(normalized)
-    except ValueError:
-        pass
-    patterns = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y-%m-%d",
-        "%Y/%m/%d",
-    ]
-    for pattern in patterns:
-        try:
-            return dt.datetime.strptime(normalized, pattern)
-        except ValueError:
-            continue
-    return None
-
-
-def _parse_bundle_version(value: str) -> Optional[tuple[int, int]]:
-    if not value:
-        return None
-    match = re.search(r"(20\d{4})", value)
-    if not match:
-        return None
-    digits = match.group(1)
-    year = int(digits[:4])
-    month = int(digits[4:])
-    if 1 <= month <= 12:
-        return year, month
-    return None
+# _try_parse_datetime 和 _parse_bundle_version 已移至 utils.parsers
 
 
 def _load_bundle_metadata() -> Optional[dict]:
@@ -1368,76 +1329,7 @@ def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
     return entries
 
 
-_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
-
-# 常见“视觉等宽但被标记为 Ambiguous 的字符”，在多数终端里仍按单宽显示
-_AMBIGUOUS_NARROW = {
-    "·",
-    "•",
-    "°",
-    "×",
-    "÷",
-}
-
-
-@functools.lru_cache(maxsize=2048)
-def _strip_ansi(text: str) -> str:
-    return _ANSI_PATTERN.sub("", text)
-
-
-def _fallback_display_width(text: str) -> int:
-    width = 0
-    for char in text:
-        if not char:
-            continue
-        if unicodedata.combining(char):
-            continue
-        code = ord(char)
-        if code < 128:
-            width += 1
-            continue
-        east = unicodedata.east_asian_width(char)
-        if east in {"F", "W"}:
-            width += 2
-        elif east == "A" and char not in _AMBIGUOUS_NARROW:
-            width += 2
-        else:
-            width += 1
-    return width
-
-
-@functools.lru_cache(maxsize=1024)
-def _display_width(text: str) -> int:
-    cleaned = _strip_ansi(text)
-    if _wcwidth_wcswidth:
-        width = _wcwidth_wcswidth(cleaned)
-        if width >= 0:
-            return width
-    return _fallback_display_width(cleaned)
-
-
-def _pad_display(text: str, width: int, align: str) -> str:
-    current = _display_width(text)
-    delta = max(0, width - current)
-    if delta == 0:
-        return text
-    if align == "right":
-        return " " * delta + text
-    if align == "center":
-        left = delta // 2
-        right = delta - left
-        return " " * left + text + " " * right
-    return text + " " * delta
-
-
-def _extract_float(text: str) -> float | None:
-    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
-    if not match:
-        return None
-    try:
-        return float(match.group())
-    except ValueError:
-        return None
+# 显示和解析相关函数已移至 utils 模块
 
 
 def _adx_state_label(state: Optional[str], lang: str) -> Optional[str]:
@@ -6367,7 +6259,8 @@ def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
             {"key": "2", "label": "核心-卫星多区间回测"},
             {"key": "3", "label": "动量回溯 / 图表"},
             {"key": "4", "label": "导出策略脚本（当前参数）"},
-            {"key": "5", "label": "刷新数据（运行快速分析）"},
+            {"key": "5", "label": "运行策略回测（慢腿/快腿/宏观驱动）"},
+            {"key": "6", "label": "刷新数据（运行快速分析）"},
             {"key": "0", "label": "返回上级菜单"},
         ]
         choice = _prompt_menu_choice(
@@ -6392,6 +6285,9 @@ def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
             _interactive_export_strategy(current_state)
             continue
         if choice == "5":
+            _run_strategy_backtest_menu()
+            continue
+        if choice == "6":
             refreshed = _run_quick_analysis(post_actions=False)
             if refreshed:
                 current_state = refreshed
@@ -6796,6 +6692,130 @@ def run_interactive() -> int:
             print(colorize("无效指令，请重新选择。", "warning"))
     finally:
         _INTERACTIVE_MODE = False
+
+
+def _run_strategy_backtest_menu() -> None:
+    """运行策略回测菜单"""
+    from .backtest import run_slow_leg_strategy, run_fast_leg_strategy, run_macro_driven_strategy
+    from .analysis_presets import ANALYSIS_PRESETS
+
+    print(colorize("\n" + "═" * 60, "border"))
+    print(colorize("策略回测选择", "title"))
+    print(colorize("═" * 60 + "\n", "border"))
+
+    options = [
+        {"key": "1", "label": "核心 + 慢腿轮动 (月度, 含风控)"},
+        {"key": "2", "label": "核心 + 快腿轮动 (周度, 20日动量)"},
+        {"key": "3", "label": "核心 + 宏观驱动 (12M-1M 长波)"},
+        {"key": "0", "label": "返回上级菜单"},
+    ]
+
+    choice = _prompt_menu_choice(
+        options,
+        title="选择要回测的策略",
+        hint="↑/↓ 选择策略 · 回车确认 · 0 返回"
+    )
+
+    if choice in {"0", "__escape__"}:
+        return
+
+    # 选择券池
+    print(colorize("\n选择回测券池:", "heading"))
+    preset_options = [
+        {"key": key, "label": f"{preset.name} - {preset.description}"}
+        for key, preset in PRESETS.items()
+    ]
+    preset_options.append({"key": "0", "label": "取消"})
+
+    preset_choice = _prompt_menu_choice(preset_options, title="选择券池预设")
+
+    if preset_choice in {"0", "__escape__"}:
+        return
+
+    # 获取选中的preset
+    selected_preset = PRESETS.get(preset_choice)
+    if not selected_preset:
+        print(colorize("未找到选中的券池", "danger"))
+        _wait_for_ack()
+        return
+
+    # 获取ETF代码列表
+    etf_codes = list(selected_preset.etfs)
+
+    # 设置回测时间范围
+    print(colorize("\n设置回测时间范围:", "heading"))
+    start_date = input(colorize("开始日期 (YYYY-MM-DD, 默认: 2020-01-01): ", "prompt")).strip() or "2020-01-01"
+    end_date = input(colorize("结束日期 (YYYY-MM-DD, 默认: 今天): ", "prompt")).strip() or dt.date.today().isoformat()
+
+    # 根据选择的策略运行回测
+    strategy_map = {
+        "1": ("slow-core", run_slow_leg_strategy, "慢腿轮动"),
+        "2": ("fast-rotation", run_fast_leg_strategy, "快腿轮动"),
+        "3": ("twelve-minus-one", run_macro_driven_strategy, "宏观驱动")
+    }
+
+    if choice not in strategy_map:
+        print(colorize("无效的策略选择", "danger"))
+        _wait_for_ack()
+        return
+
+    analysis_preset_key, strategy_func, strategy_name = strategy_map[choice]
+
+    # 获取对应的分析预设参数
+    analysis_preset = ANALYSIS_PRESETS.get(analysis_preset_key)
+    if not analysis_preset:
+        print(colorize(f"未找到分析预设: {analysis_preset_key}", "danger"))
+        _wait_for_ack()
+        return
+
+    momentum_params = {
+        'momentum_windows': list(analysis_preset.momentum_windows),
+        'momentum_weights': list(analysis_preset.momentum_weights) if analysis_preset.momentum_weights else None,
+        'momentum_skip_windows': list(analysis_preset.momentum_skip_windows) if analysis_preset.momentum_skip_windows else None
+    }
+
+    print(colorize(f"\n开始运行 {strategy_name} 策略回测...", "info"))
+    print(colorize(f"券池: {selected_preset.name}", "dim"))
+    print(colorize(f"ETF数量: {len(etf_codes)}", "dim"))
+    print(colorize(f"时间范围: {start_date} 至 {end_date}", "dim"))
+
+    try:
+        result = strategy_func(
+            etf_codes=etf_codes,
+            start_date=start_date,
+            end_date=end_date,
+            momentum_params=momentum_params
+        )
+
+        # 显示回测结果
+        print(colorize("\n" + "═" * 60, "border"))
+        print(colorize(f"回测结果 - {result.strategy_name}", "title"))
+        print(colorize("═" * 60, "border"))
+
+        print(colorize(f"\n总收益率: ", "heading") + colorize(f"{result.total_return:.2f}%",
+              "value_positive" if result.total_return > 0 else "value_negative"))
+        print(colorize(f"年化收益率: ", "heading") + colorize(f"{result.annual_return:.2f}%",
+              "value_positive" if result.annual_return > 0 else "value_negative"))
+        print(colorize(f"夏普比率: ", "heading") + colorize(f"{result.sharpe_ratio:.2f}", "accent"))
+        print(colorize(f"最大回撤: ", "heading") + colorize(f"{result.max_drawdown:.2f}%", "value_negative"))
+        print(colorize(f"交易次数: ", "heading") + colorize(f"{len(result.trades)}", "info"))
+
+        # 显示最近几笔交易
+        if result.trades:
+            print(colorize("\n最近5笔交易:", "heading"))
+            for trade in result.trades[-5:]:
+                action_color = "value_positive" if trade.action == "BUY" else "value_negative"
+                print(f"  {trade.date} | {colorize(trade.action, action_color)} {trade.code} | "
+                      f"价格: {trade.price:.2f} | 原因: {trade.reason}")
+
+        print(colorize("\n" + "═" * 60 + "\n", "border"))
+
+    except Exception as e:
+        print(colorize(f"\n回测失败: {e}", "danger"))
+        import traceback
+        traceback.print_exc()
+
+    _wait_for_ack()
 
 
 def main(argv: Iterable[str] | None = None) -> int:
