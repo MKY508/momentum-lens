@@ -1,6 +1,6 @@
 """配置管理模块
 
-包含设置管理、验证和数据包状态检查功能。
+包含设置管理、验证、数据包状态检查和统一配置管理器。
 """
 
 from .bundle import (
@@ -8,6 +8,10 @@ from .bundle import (
     BUNDLE_VERSION_FILE,
     bundle_status,
     load_bundle_metadata,
+)
+from .manager import (
+    ConfigManager,
+    config_manager,
 )
 from .settings import (
     DEFAULT_SETTINGS,
@@ -29,6 +33,9 @@ __all__ = [
     "BUNDLE_VERSION_FILE",
     "bundle_status",
     "load_bundle_metadata",
+    # Config manager
+    "ConfigManager",
+    "config_manager",
     # Settings management
     "DEFAULT_SETTINGS",
     "SETTINGS_STORE_PATH",
