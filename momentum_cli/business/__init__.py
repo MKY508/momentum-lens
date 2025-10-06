@@ -21,6 +21,13 @@ from .templates import (
     template_to_params,
     TEMPLATE_STORE_PATH,
 )
+from .history import (
+    record_history,
+    get_history,
+    clear_history,
+    MAX_REPORT_HISTORY,
+    TIMESTAMP_FMT,
+)
 
 __all__ = [
     # Reports
@@ -39,4 +46,10 @@ __all__ = [
     "list_templates",
     "template_to_params",
     "TEMPLATE_STORE_PATH",
+    # History
+    "record_history",
+    "get_history",
+    "clear_history",
+    "MAX_REPORT_HISTORY",
+    "TIMESTAMP_FMT",
 ]

@@ -356,9 +356,7 @@ _utils_set_color_enabled(_COLOR_ENABLED)
 _INTERACTIVE_MODE = False
 _LAST_BUNDLE_REFRESH: dt.datetime | None = None
 _LAST_BACKTEST_CONTEXT: dict | None = None
-_REPORT_HISTORY: List[dict] = []
-_MAX_REPORT_HISTORY = 20
-_REPORT_TIMESTAMP_FMT = "%Y-%m-%d %H:%M"
+# 报告历史改由 business.history 管理
 
 # Bundle 相关已移至 config.bundle
 _BUNDLE_STATUS_CACHE: dict | None = None
@@ -5751,39 +5749,10 @@ def _show_about() -> None:
 
 
 def _record_report_history(state: dict, label: str, preset: AnalysisPreset | None) -> None:
-    if not _INTERACTIVE_MODE:
-        return
-    config = state.get("config")
-    if not isinstance(config, AnalysisConfig):
-        return
-    timeframe_start = config.start_date or "最早可用"
-    timeframe_end = config.end_date or "最新"
-    timeframe = f"{timeframe_start} → {timeframe_end}"
-    etf_count = len(config.etfs)
+    # 	2024														 迁移至 business.history
+    from .business import record_history
     preset_label = f"{preset.name} [{preset.key}]" if preset else None
-    timestamp = dt.datetime.now()
-    if _REPORT_HISTORY and _REPORT_HISTORY[-1].get("state") is state:
-        _REPORT_HISTORY[-1].update(
-            {
-                "label": label,
-                "timeframe": timeframe,
-                "timestamp": timestamp,
-                "preset": preset_label,
-                "etf_count": etf_count,
-            }
-        )
-        return
-    entry = {
-        "label": label,
-        "timeframe": timeframe,
-        "timestamp": timestamp,
-        "preset": preset_label,
-        "etf_count": etf_count,
-        "state": state,
-    }
-    _REPORT_HISTORY.append(entry)
-    if len(_REPORT_HISTORY) > _MAX_REPORT_HISTORY:
-        _REPORT_HISTORY.pop(0)
+    record_history(state, label, preset_label, interactive=_INTERACTIVE_MODE)
 
 
 def _show_report_history(last_state: Optional[dict]) -> Optional[dict]:
@@ -5801,10 +5770,11 @@ def _show_report_history(last_state: Optional[dict]) -> Optional[dict]:
         return last_state
 
     while True:
-        history_items = list(reversed(_REPORT_HISTORY))
+        from .business import get_history, TIMESTAMP_FMT
+        history_items = list(reversed(get_history()))
         options: List[Dict[str, Any]] = []
         for idx, entry in enumerate(history_items, start=1):
-            timestamp = entry["timestamp"].strftime(_REPORT_TIMESTAMP_FMT)
+            timestamp = entry["timestamp"].strftime(TIMESTAMP_FMT)
             label = f"{timestamp} · {entry['label']}"
             extra_lines = [
                 colorize(

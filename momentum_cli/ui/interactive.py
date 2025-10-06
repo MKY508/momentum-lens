@@ -137,10 +137,8 @@ def _handle_interactive_menu(
     while True:
         # 擦除之前的渲染（包括菜单和底部）
         if rendered_total_lines > 0:
-            # 移动光标到开始位置并清除
-            if rendered_total_lines > 1:
-                print(f"\033[{rendered_total_lines - 1}A", end="")
-            print("\033[J", end="", flush=True)
+            # 移动光标到菜单起始行（包含提示行）并清除本区域
+            print(f"\033[{rendered_total_lines}A\r\033[J", end="", flush=True)
 
         # 渲染菜单
         menu_lines = []
@@ -176,13 +174,9 @@ def _handle_interactive_menu(
             # 回退到非交互模式
             # 清除所有渲染（包括头部）
             if rendered_total_lines > 0:
-                if rendered_total_lines > 1:
-                    print(f"\033[{rendered_total_lines - 1}A", end="")
-                print("\033[J", end="", flush=True)
+                print(f"\033[{rendered_total_lines}A\r\033[J", end="", flush=True)
             if header_line_count > 0:
-                if header_line_count > 1:
-                    print(f"\033[{header_line_count}A", end="")
-                print("\033[J", end="", flush=True)
+                print(f"\033[{header_line_count}A\r\033[J", end="", flush=True)
 
             return _handle_non_interactive_menu(
                 options, title, header_lines, hint, footer_lines,
@@ -198,9 +192,7 @@ def _handle_interactive_menu(
         if isinstance(result, str):
             # 清除渲染
             if rendered_total_lines > 0:
-                if rendered_total_lines > 1:
-                    print(f"\033[{rendered_total_lines - 1}A", end="")
-                print("\033[J", end="", flush=True)
+                print(f"\033[{rendered_total_lines}A\r\033[J", end="", flush=True)
             return result
         elif isinstance(result, dict):
             # 更新状态
