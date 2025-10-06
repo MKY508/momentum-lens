@@ -60,9 +60,25 @@ from .utils.display import strip_ansi as _strip_ansi
 from .utils.parsers import extract_float as _extract_float
 from .utils.parsers import parse_bundle_version as _parse_bundle_version
 from .utils.parsers import try_parse_datetime as _try_parse_datetime
-
-
-SETTINGS_STORE_PATH = Path(__file__).resolve().parent / "cli_settings.json"
+from .config.settings import (
+    DEFAULT_SETTINGS as _DEFAULT_SETTINGS,
+    SETTINGS_STORE_PATH,
+    load_cli_settings as _load_cli_settings,
+    save_cli_settings as _save_cli_settings,
+    update_setting as _update_setting,
+)
+from .config.validators import (
+    validate_corr_threshold as _validate_corr_threshold,
+    validate_float_range_setting as _validate_float_range_setting,
+    validate_positive_int_setting as _validate_positive_int_setting,
+    validate_ratio_setting as _validate_ratio_setting,
+)
+from .config.bundle import (
+    BUNDLE_ROOT as _BUNDLE_ROOT,
+    BUNDLE_VERSION_FILE as _BUNDLE_VERSION_FILE,
+    bundle_status as _bundle_status,
+    load_bundle_metadata as _load_bundle_metadata,
+)
 
 APP_NAME = "Momentum Lens"
 APP_VERSION = "0.9.0"
@@ -312,56 +328,15 @@ _CLI_THEME_INFO = {
 _TERMINAL_SIZE_CACHE = {"columns": 120, "timestamp": 0.0}
 _THEME_SAMPLE_CACHE: Dict[str, str] = {}
 
-_DEFAULT_SETTINGS = {
-    "cli_theme": "aurora",
-    "plot_template": "plotly_white",
-    "plot_line_width": 2.2,
-    "correlation_alert_threshold": 0.8,
-    "momentum_significance_threshold": 0.6,
-    "momentum_significance_lookback": 756,
-    "trend_consistency_adx": 25.0,
-    "trend_consistency_chop": 38.0,
-    "trend_consistency_fast_span": 20,
-    "trend_consistency_slow_span": 60,
-    "stability_method": "presence_ratio",
-    "stability_window": 15,
-    "stability_top_n": 10,
-    "stability_weight": 0.0,
-}
-
 _MOMENTUM_ALERT_TOP = 6
 _MOMENTUM_ALERT_WEEKS = 3
 _MOMENTUM_ALERT_MIN_DROP = 2
 _MAX_CORRELATION_ALERTS = 15
 
 
-def _load_cli_settings() -> dict:
-    if not SETTINGS_STORE_PATH.exists():
-        return {}
-    try:
-        raw = json.loads(SETTINGS_STORE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    return {}
-
-
+# _load_cli_settings, _save_cli_settings, _update_setting 已移至 config.settings
 _LOADED_SETTINGS = _load_cli_settings()
 _SETTINGS = {**_DEFAULT_SETTINGS, **_LOADED_SETTINGS}
-
-
-def _save_cli_settings() -> None:
-    SETTINGS_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_STORE_PATH.write_text(
-        json.dumps(_SETTINGS, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _update_setting(key: str, value) -> None:
-    _SETTINGS[key] = value
-    _save_cli_settings()
 
 
 _settings_dirty = False
@@ -389,52 +364,11 @@ except (TypeError, ValueError):
     _settings_dirty = True
 
 
-def _validate_corr_threshold(value) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return _DEFAULT_SETTINGS["correlation_alert_threshold"]
-    if not (0 < numeric <= 1):
-        return _DEFAULT_SETTINGS["correlation_alert_threshold"]
-    return numeric
-
-
-def _validate_ratio_setting(value, default, *, min_value: float = 0.0, max_value: float = 1.0) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return default
-    if numeric < min_value or numeric > max_value:
-        return default
-    return numeric
-
-
-def _validate_positive_int_setting(value, default, *, minimum: int = 1, maximum: int | None = None) -> int:
-    try:
-        numeric = int(value)
-    except (TypeError, ValueError):
-        return default
-    if numeric < minimum:
-        return default
-    if maximum is not None and numeric > maximum:
-        return default
-    return numeric
-
-
-def _validate_float_range_setting(value, default, *, minimum: float | None = None, maximum: float | None = None) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return default
-    if minimum is not None and numeric < minimum:
-        return default
-    if maximum is not None and numeric > maximum:
-        return default
-    return numeric
+# _validate_* 函数已移至 config.validators
 
 
 _CORRELATION_ALERT_THRESHOLD = _validate_corr_threshold(
-    _SETTINGS.get("correlation_alert_threshold")
+    _SETTINGS.get("correlation_alert_threshold"), _DEFAULT_SETTINGS["correlation_alert_threshold"]
 )
 if _CORRELATION_ALERT_THRESHOLD != _SETTINGS.get("correlation_alert_threshold"):
     _SETTINGS["correlation_alert_threshold"] = _CORRELATION_ALERT_THRESHOLD
@@ -544,7 +478,7 @@ if _STABILITY_WEIGHT != _SETTINGS.get("stability_weight"):
     _settings_dirty = True
 
 if _settings_dirty:
-    _save_cli_settings()
+    _save_cli_settings(_SETTINGS)
 
 
 def _build_builtin_template(
@@ -621,8 +555,7 @@ _REPORT_HISTORY: List[dict] = []
 _MAX_REPORT_HISTORY = 20
 _REPORT_TIMESTAMP_FMT = "%Y-%m-%d %H:%M"
 
-_BUNDLE_ROOT = Path.home() / ".rqalpha" / "bundle"
-_BUNDLE_VERSION_FILE = _BUNDLE_ROOT / "bundle_version.json"
+# Bundle 相关已移至 config.bundle
 _BUNDLE_STATUS_CACHE: dict | None = None
 _BUNDLE_UPDATE_PROMPTED = False
 _BUNDLE_WARNING_EMITTED = False
@@ -633,70 +566,9 @@ def _set_color_enabled(flag: bool) -> None:
     _COLOR_ENABLED = bool(flag)
 
 
-# _try_parse_datetime 和 _parse_bundle_version 已移至 utils.parsers
-
-
-def _load_bundle_metadata() -> Optional[dict]:
-    if not _BUNDLE_VERSION_FILE.exists():
-        return None
-    try:
-        return json.loads(_BUNDLE_VERSION_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _bundle_status(force_refresh: bool = False) -> dict:
-    global _BUNDLE_STATUS_CACHE
-    if not force_refresh and _BUNDLE_STATUS_CACHE is not None:
-        return _BUNDLE_STATUS_CACHE
-    metadata = _load_bundle_metadata()
-    today = dt.date.today()
-    has_files = False
-    if _BUNDLE_ROOT.exists():
-        for candidate in _BUNDLE_ROOT.glob("*.h5"):
-            has_files = True
-            break
-    status: dict = {"state": "missing", "metadata": metadata, "has_files": has_files}
-    if not metadata:
-        if has_files:
-            status["state"] = "fresh"
-            status["version_raw"] = None
-            status["version"] = None
-        _BUNDLE_STATUS_CACHE = status
-        return status
-    version_raw = metadata.get("bundle_version") or metadata.get("version") or metadata.get("bundle") or ""
-    parsed_version = _parse_bundle_version(str(version_raw))
-    updated_raw = metadata.get("updated_at") or metadata.get("created_at") or metadata.get("generated_at")
-    updated_dt = _try_parse_datetime(str(updated_raw)) if updated_raw else None
-    status.update(
-        {
-            "state": "unknown",
-            "version_raw": version_raw,
-            "version": None,
-            "updated_at": updated_dt,
-        }
-    )
-    if parsed_version:
-        year, month = parsed_version
-        status["version"] = f"{year}{month:02d}"
-        status["year"] = year
-        status["month"] = month
-        months_delta = (today.year - year) * 12 + (today.month - month)
-        status["months_behind"] = months_delta
-        status["state"] = "fresh" if months_delta <= 0 else "stale"
-    if updated_dt:
-        now = dt.datetime.now(updated_dt.tzinfo) if updated_dt.tzinfo else dt.datetime.now()
-        delta_days = (now - updated_dt).days
-        status["days_since_update"] = delta_days
-        if status["state"] == "unknown" and delta_days <= 7:
-            status["state"] = "fresh"
-    _BUNDLE_STATUS_CACHE = status
-    return status
-
-
 def _maybe_prompt_bundle_refresh(interactive: bool, reason: str, *, force: bool = False) -> None:
     global _BUNDLE_UPDATE_PROMPTED, _BUNDLE_WARNING_EMITTED
-    status = _bundle_status()
+    status = _bundle_status(cache=_BUNDLE_STATUS_CACHE)
     state = status.get("state")
     if state == "fresh" and not force:
         return
@@ -752,7 +624,7 @@ def _set_correlation_alert_threshold(value: float, *, persist: bool = True) -> f
     numeric = _validate_corr_threshold(value)
     _CORRELATION_ALERT_THRESHOLD = numeric
     if persist:
-        _update_setting("correlation_alert_threshold", numeric)
+        _update_setting(_SETTINGS,_SETTINGS, "correlation_alert_threshold", numeric)
     return numeric
 
 
@@ -766,7 +638,7 @@ def _set_momentum_significance_threshold(value: float, *, persist: bool = True) 
     )
     _MOMENTUM_SIGNIFICANCE_THRESHOLD = numeric
     if persist:
-        _update_setting("momentum_significance_threshold", numeric)
+        _update_setting(_SETTINGS,"momentum_significance_threshold", numeric)
     return numeric
 
 
@@ -780,7 +652,7 @@ def _set_momentum_significance_lookback(value: int, *, persist: bool = True) -> 
     )
     _MOMENTUM_SIGNIFICANCE_LOOKBACK = numeric
     if persist:
-        _update_setting("momentum_significance_lookback", numeric)
+        _update_setting(_SETTINGS,"momentum_significance_lookback", numeric)
     return numeric
 
 
@@ -794,7 +666,7 @@ def _set_trend_consistency_adx(value: float, *, persist: bool = True) -> float:
     )
     _TREND_CONSISTENCY_ADX = numeric
     if persist:
-        _update_setting("trend_consistency_adx", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_adx", numeric)
     return numeric
 
 
@@ -808,7 +680,7 @@ def _set_trend_consistency_chop(value: float, *, persist: bool = True) -> float:
     )
     _TREND_CONSISTENCY_CHOP = numeric
     if persist:
-        _update_setting("trend_consistency_chop", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_chop", numeric)
     return numeric
 
 
@@ -824,9 +696,9 @@ def _set_trend_fast_span(value: int, *, persist: bool = True) -> int:
     if _TREND_SLOW_SPAN <= _TREND_FAST_SPAN:
         _TREND_SLOW_SPAN = min(500, _TREND_FAST_SPAN + 5)
         if persist:
-            _update_setting("trend_consistency_slow_span", _TREND_SLOW_SPAN)
+            _update_setting(_SETTINGS,"trend_consistency_slow_span", _TREND_SLOW_SPAN)
     if persist:
-        _update_setting("trend_consistency_fast_span", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_fast_span", numeric)
     return numeric
 
 
@@ -842,7 +714,7 @@ def _set_trend_slow_span(value: int, *, persist: bool = True) -> int:
         numeric = min(500, _TREND_FAST_SPAN + 5)
     _TREND_SLOW_SPAN = numeric
     if persist:
-        _update_setting("trend_consistency_slow_span", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_slow_span", numeric)
     return numeric
 
 
@@ -853,7 +725,7 @@ def _set_stability_method(value: str, *, persist: bool = True) -> str:
         return _STABILITY_METHOD
     _STABILITY_METHOD = normalized
     if persist:
-        _update_setting("stability_method", normalized)
+        _update_setting(_SETTINGS,"stability_method", normalized)
     return normalized
 
 
@@ -867,7 +739,7 @@ def _set_stability_window(value: int, *, persist: bool = True) -> int:
     )
     _STABILITY_WINDOW = numeric
     if persist:
-        _update_setting("stability_window", numeric)
+        _update_setting(_SETTINGS,"stability_window", numeric)
     return numeric
 
 
@@ -881,7 +753,7 @@ def _set_stability_top_n(value: int, *, persist: bool = True) -> int:
     )
     _STABILITY_TOP_N = numeric
     if persist:
-        _update_setting("stability_top_n", numeric)
+        _update_setting(_SETTINGS,"stability_top_n", numeric)
     return numeric
 
 
@@ -895,7 +767,7 @@ def _set_stability_weight(value: float, *, persist: bool = True) -> float:
     )
     _STABILITY_WEIGHT = numeric
     if persist:
-        _update_setting("stability_weight", numeric)
+        _update_setting(_SETTINGS,"stability_weight", numeric)
     return numeric
 
 
@@ -920,7 +792,7 @@ def _apply_cli_theme(theme_key: str, *, persist: bool = True) -> bool:
         _display_width.cache_clear()
     _THEME_SAMPLE_CACHE.clear()
     if persist:
-        _update_setting("cli_theme", theme_key)
+        _update_setting(_SETTINGS,"cli_theme", theme_key)
     return True
 
 
@@ -4151,14 +4023,14 @@ def _configure_plot_style() -> None:
             break
         if choice in templates:
             _PLOT_TEMPLATE = choice
-            _update_setting("plot_template", _PLOT_TEMPLATE)
+            _update_setting(_SETTINGS,"plot_template", _PLOT_TEMPLATE)
             print(colorize(f"已切换到 {_PLOT_TEMPLATE} 主题。", "value_positive"))
             break
         if choice.isdigit():
             idx = int(choice)
             if 1 <= idx <= len(templates):
                 _PLOT_TEMPLATE = templates[idx - 1]
-                _update_setting("plot_template", _PLOT_TEMPLATE)
+                _update_setting(_SETTINGS,"plot_template", _PLOT_TEMPLATE)
                 print(colorize(f"已切换到 {_PLOT_TEMPLATE} 主题。", "value_positive"))
                 break
         print(colorize("输入无效，请重新选择。", "warning"))
@@ -4175,7 +4047,7 @@ def _configure_plot_style() -> None:
             print(colorize("宽度需为正数。", "warning"))
             continue
         _PLOT_LINE_WIDTH = width
-        _update_setting("plot_line_width", _PLOT_LINE_WIDTH)
+        _update_setting(_SETTINGS,"plot_line_width", _PLOT_LINE_WIDTH)
         print(colorize(f"曲线宽度已更新为 {_PLOT_LINE_WIDTH}。", "value_positive"))
         break
 
@@ -4397,7 +4269,7 @@ def _configure_stability_settings() -> None:
 
 def _update_data_bundle() -> None:
     global _LAST_BUNDLE_REFRESH, _LAST_BACKTEST_CONTEXT, _BUNDLE_STATUS_CACHE, _BUNDLE_UPDATE_PROMPTED
-    status = _bundle_status(force_refresh=True)
+    status = _bundle_status(force_refresh=True, cache=_BUNDLE_STATUS_CACHE)
     if status.get("state") == "fresh":
         version_display = status.get("version") or status.get("version_raw") or "最新版本"
         print(colorize(f"当前数据包 {version_display} 已是最新，无需重新下载。", "info"))
