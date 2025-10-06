@@ -5374,20 +5374,9 @@ def _ensure_analysis_state(
 
 
 def _show_about() -> None:
-    print("")
-    print(colorize(f"{APP_NAME} {APP_VERSION}", "heading"))
-    print(colorize("面向量化复盘的 ETF 动量分析与回测工具。", "menu_text"))
-    print(colorize("主要特性:", "menu_hint"))
-    for bullet in (
-        "快速分析核心/卫星券池并给出动量预警",
-        "交互式 Plotly 图表、策略导出与多区间回测",
-        "可配置模板、阈值与配色，适合定制流程",
-    ):
-        print(colorize(f" - {bullet}", "menu_text"))
-    print(colorize("项目主页:", "menu_hint"))
-    print(colorize(f" {REPO_URL}", "menu_text"))
-    print(colorize("作者: mky508", "menu_hint"))
-    print("")
+    # Routed to commands.about
+    from .commands import show_about as _cmd_show_about
+    _cmd_show_about(APP_NAME, APP_VERSION, REPO_URL)
 
 
 def _record_report_history(state: dict, label: str, preset: AnalysisPreset | None) -> None:
