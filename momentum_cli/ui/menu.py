@@ -94,9 +94,13 @@ def render_menu_block(
         渲染后的文本行列表
     """
     lines = []
-    
+
     if title:
-        lines.append(colorize(f"┌─ {title} ─────────────────────────", "border"))
+        # 如果title已经包含边框字符，直接使用；否则添加边框
+        if title.startswith("┌─"):
+            lines.append(colorize(title, "border"))
+        else:
+            lines.append(colorize(f"┌─ {title} ─────────────────────────", "border"))
     else:
         lines.append(colorize("┌─ 功能清单 ─────────────────────────", "border"))
     

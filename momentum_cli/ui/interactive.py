@@ -125,32 +125,82 @@ def _handle_interactive_menu(
     """处理交互模式的菜单"""
     menu_state = MenuState(options)
     pending = ""
-    
+    rendered_total_lines = 0
+
+    # 打印头部（只打印一次）
+    header_line_count = 0
+    if header_lines:
+        for line in header_lines:
+            print(line)
+            header_line_count += 1
+
     while True:
-        # 渲染界面
-        _render_interactive_interface(
-            menu_state, title, header_lines, hint, footer_lines, prompt_text
+        # 擦除之前的渲染（包括菜单和底部）
+        if rendered_total_lines > 0:
+            # 移动光标到开始位置并清除
+            if rendered_total_lines > 1:
+                print(f"\033[{rendered_total_lines - 1}A", end="")
+            print("\033[J", end="", flush=True)
+
+        # 渲染菜单
+        menu_lines = []
+        from .menu import render_menu_block
+        menu_lines = render_menu_block(
+            menu_state.items,
+            selected_index=menu_state.selected_index,
+            title=title,
+            show_hints=False
         )
-        
+
+        for line in menu_lines:
+            print(line)
+
+        # 打印提示和底部
+        footer_line_count = 0
+        if hint:
+            print(colorize(hint, "menu_hint"))
+            footer_line_count += 1
+        if footer_lines:
+            for line in footer_lines:
+                print(line)
+                footer_line_count += 1
+
+        # 打印输入提示
+        print(colorize(prompt_text, "prompt"), end="", flush=True)
+
+        rendered_total_lines = len(menu_lines) + footer_line_count + 1
+
         # 读取按键
         key = read_keypress()
         if key is None:
             # 回退到非交互模式
-            menu_state.clear()
+            # 清除所有渲染（包括头部）
+            if rendered_total_lines > 0:
+                if rendered_total_lines > 1:
+                    print(f"\033[{rendered_total_lines - 1}A", end="")
+                print("\033[J", end="", flush=True)
+            if header_line_count > 0:
+                if header_line_count > 1:
+                    print(f"\033[{header_line_count}A", end="")
+                print("\033[J", end="", flush=True)
+
             return _handle_non_interactive_menu(
                 options, title, header_lines, hint, footer_lines,
                 prompt_text, default_key
             )
-        
+
         # 处理按键
         result = _process_menu_key(
-            key, menu_state, pending, default_key, allow_escape, 
+            key, menu_state, pending, default_key, allow_escape,
             instant_numeric, escape_prompt
         )
-        
+
         if isinstance(result, str):
-            # 返回结果
-            menu_state.clear()
+            # 清除渲染
+            if rendered_total_lines > 0:
+                if rendered_total_lines > 1:
+                    print(f"\033[{rendered_total_lines - 1}A", end="")
+                print("\033[J", end="", flush=True)
             return result
         elif isinstance(result, dict):
             # 更新状态
@@ -158,32 +208,7 @@ def _handle_interactive_menu(
         # 否则继续循环
 
 
-def _render_interactive_interface(
-    menu_state: MenuState,
-    title: Optional[str],
-    header_lines: Sequence[str] | None,
-    hint: Optional[str],
-    footer_lines: Sequence[str] | None,
-    prompt_text: str,
-) -> None:
-    """渲染交互式界面"""
-    # 打印头部
-    if header_lines:
-        for line in header_lines:
-            print(line)
-    
-    # 渲染菜单
-    menu_state.render(title=title, show_hints=False)
-    
-    # 打印提示和底部
-    if hint:
-        print(colorize(hint, "menu_hint"))
-    if footer_lines:
-        for line in footer_lines:
-            print(line)
-    
-    # 打印输入提示
-    print(colorize(prompt_text, "prompt"), end="", flush=True)
+
 
 
 def _process_menu_key(
