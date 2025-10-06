@@ -78,6 +78,18 @@ from .ui import (
     prompt_positive_int as _ui_prompt_positive_int,
     prompt_optional_date as _ui_prompt_optional_date,
 )
+# 导入业务逻辑工具（渐进式迁移）
+from .business import (
+    load_template_store as _business_load_template_store,
+    write_template_store as _business_write_template_store,
+    get_template as _business_get_template,
+    save_template as _business_save_template,
+    delete_template as _business_delete_template,
+    get_builtin_template_store as _business_get_builtin_template_store,
+    template_to_params as _business_template_to_params,
+    render_text_report as _business_render_text_report,
+    render_markdown_report as _business_render_markdown_report,
+)
 from .config.settings import (
     DEFAULT_SETTINGS as _DEFAULT_SETTINGS,
     SETTINGS_STORE_PATH,
@@ -345,12 +357,8 @@ _BUILTIN_TEMPLATE_DEFINITIONS: Sequence[tuple[str, Sequence[str], str]] = (
 
 
 def _builtin_template_store() -> Dict[str, dict]:
-    store: Dict[str, dict] = {}
-    for name, preset_keys, analysis_key in _BUILTIN_TEMPLATE_DEFINITIONS:
-        payload = _build_builtin_template(preset_keys, analysis_key)
-        if payload:
-            store[name] = payload
-    return store
+    """获取内置模板存储（兼容层）"""
+    return _business_get_builtin_template_store()
 
 
 TEMPLATE_STORE_PATH = Path(__file__).resolve().parent / "templates.json"
@@ -1254,81 +1262,30 @@ def _prompt_menu_choice(
 
 
 
+# 模板管理函数已移至 business.templates 模块
 def _load_template_store() -> Dict[str, dict]:
-    base_store = _builtin_template_store()
-    if not TEMPLATE_STORE_PATH.exists():
-        return dict(base_store)
-    try:
-        data = json.loads(TEMPLATE_STORE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return dict(base_store)
-    templates = data.get("templates")
-    if not isinstance(templates, dict):
-        return dict(base_store)
-    store = dict(base_store)
-    for raw_key, value in templates.items():
-        key = str(raw_key)
-        if value is None:
-            store.pop(key, None)
-            continue
-        if isinstance(value, dict):
-            store[key] = dict(value)
-    return store
+    """加载模板存储（兼容层）"""
+    return _business_load_template_store()
 
 
 def _write_template_store(store: Dict[str, dict]) -> None:
-    base_store = _builtin_template_store()
-    payload_templates: Dict[str, Optional[dict]] = {}
-    for key, value in store.items():
-        base_value = base_store.get(key)
-        if value is None:
-            payload_templates[key] = None
-            continue
-        if not isinstance(value, dict):
-            continue
-        if base_value is not None and base_value == value:
-            continue
-        payload_templates[key] = value
-    TEMPLATE_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if not payload_templates:
-        try:
-            TEMPLATE_STORE_PATH.unlink()
-        except OSError:
-            pass
-        return
-    payload = {"templates": payload_templates}
-    TEMPLATE_STORE_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    """写入模板存储（兼容层）"""
+    _business_write_template_store(store)
 
 
 def _get_template_entry(name: str) -> Optional[dict]:
-    return _load_template_store().get(name)
+    """获取模板条目（兼容层）"""
+    return _business_get_template(name)
 
 
 def _save_template_entry(name: str, payload: dict, overwrite: bool = False) -> bool:
-    store = _load_template_store()
-    existing = store.get(name)
-    if not overwrite and existing is not None:
-        return False
-    store[name] = dict(payload)
-    _write_template_store(store)
-    return True
+    """保存模板条目（兼容层）"""
+    return _business_save_template(name, payload, overwrite)
 
 
 def _delete_template_entry(name: str) -> bool:
-    store = _load_template_store()
-    base_store = _builtin_template_store()
-    existed = name in store or name in base_store
-    if not existed:
-        return False
-    if name in store:
-        del store[name]
-    if name in base_store:
-        store[name] = None
-    _write_template_store(store)
-    return True
+    """删除模板条目（兼容层）"""
+    return _business_delete_template(name)
 
 
 def _print_template_list() -> None:
