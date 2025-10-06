@@ -4313,37 +4313,25 @@ def _run_analysis_with_params(
         _maybe_prompt_bundle_refresh(bundle_interactive, bundle_context)
     params.setdefault("presets", [])
     preset: AnalysisPreset | None = params.get("analysis_preset")
-    momentum_config = MomentumConfig(
-        windows=tuple(params["windows"]),
-        weights=params.get("weights"),
-        skip_windows=params.get("skip_windows"),
-    )
-    config = AnalysisConfig(
-        start_date=params["start"],
-        end_date=params["end"],
-        etfs=params["codes"],
-        exclude=(),
-        momentum=momentum_config,
-        chop_window=params["chop_window"],
-        trend_window=params["trend_window"],
-        corr_window=params["corr_window"],
-        rank_change_lookback=params["rank_lookback"],
-        output_dir=Path(params["output_dir"]),
-        make_plots=params["make_plots"],
-        momentum_percentile_lookback=_MOMENTUM_SIGNIFICANCE_LOOKBACK,
-        momentum_significance_threshold=_MOMENTUM_SIGNIFICANCE_THRESHOLD,
-        trend_consistency_adx_threshold=_TREND_CONSISTENCY_ADX,
-        trend_consistency_chop_threshold=_TREND_CONSISTENCY_CHOP,
-        trend_consistency_fast_span=_TREND_FAST_SPAN,
-        trend_consistency_slow_span=_TREND_SLOW_SPAN,
-        stability_method=params.get("stability_method", _STABILITY_METHOD),
-        stability_window=params.get("stability_window", _STABILITY_WINDOW),
-        stability_top_n=params.get("stability_top_n", _STABILITY_TOP_N),
-        stability_weight=params.get("stability_weight", _STABILITY_WEIGHT),
-    )
+    from .business.analysis import build_configs_from_params
+    # merge defaults
+    params = dict(params)
+    params.setdefault("stability_method", _STABILITY_METHOD)
+    params.setdefault("stability_window", _STABILITY_WINDOW)
+    params.setdefault("stability_top_n", _STABILITY_TOP_N)
+    params.setdefault("stability_weight", _STABILITY_WEIGHT)
+    params.setdefault("momentum_percentile_lookback", _MOMENTUM_SIGNIFICANCE_LOOKBACK)
+    params.setdefault("momentum_significance_threshold", _MOMENTUM_SIGNIFICANCE_THRESHOLD)
+    params.setdefault("trend_consistency_adx_threshold", _TREND_CONSISTENCY_ADX)
+    params.setdefault("trend_consistency_chop_threshold", _TREND_CONSISTENCY_CHOP)
+    params.setdefault("trend_consistency_fast_span", _TREND_FAST_SPAN)
+    params.setdefault("trend_consistency_slow_span", _TREND_SLOW_SPAN)
+
+    config, momentum_config = build_configs_from_params(params)
 
     lang = params.get("lang", "zh")
-    result = analyze(config)
+    from .business.analysis import run_analysis_only
+    result = run_analysis_only(config)
     payload = _build_result_payload(result, config, momentum_config, preset, lang)
     report_text = _render_text_report(result, config, momentum_config, preset, lang)
     print(report_text)
@@ -4511,7 +4499,8 @@ def _obtain_backtest_context(
     _maybe_prompt_bundle_refresh(True, "回测数据加载")
     print(colorize("正在加载回测所需数据，请稍候……", "menu_hint"))
     try:
-        result = analyze(config)
+        from .business.analysis import run_analysis_only
+        result = run_analysis_only(config)
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"数据加载失败: {exc}", "danger"))
         return None
@@ -5970,7 +5959,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     _maybe_prompt_bundle_refresh(False, "命令行分析")
 
     try:
-        result = analyze(config)
+        from .business.analysis import run_analysis_only
+        result = run_analysis_only(config)
     except Exception as exc:  # noqa: BLE001
         parser.error(str(exc))
         return 1
