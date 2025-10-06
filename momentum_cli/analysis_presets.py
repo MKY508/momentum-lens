@@ -317,6 +317,20 @@ def delete_analysis_preset(key: str) -> bool:
     return True
 
 
+# ---- Convenience helpers for CLI/UI ----
+
+def preset_status_label(key: str) -> str:
+    """Return a short status marker for a preset key.
+    - "内置": key exists in defaults and no user override
+    - "覆盖": key exists in defaults and user override is present
+    - "自定义": user-defined preset not in defaults
+    """
+    normalized = _normalize_key(key)
+    if normalized in DEFAULT_ANALYSIS_PRESETS:
+        return "覆盖" if has_custom_analysis_override(normalized) else "内置"
+    return "自定义"
+
+
 def reset_analysis_preset(key: str) -> bool:
     normalized_key = _normalize_key(key)
     removed = delete_analysis_preset(normalized_key)

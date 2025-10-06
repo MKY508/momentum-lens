@@ -2783,10 +2783,7 @@ def _print_analysis_presets() -> None:
         print(detail)
 
 
-def _analysis_preset_status_label(key: str) -> str:
-    if key in DEFAULT_ANALYSIS_PRESETS:
-        return "覆盖" if has_custom_analysis_override(key) else "内置"
-    return "自定义"
+from .analysis_presets import preset_status_label as _analysis_preset_status_label
 
 
 def _select_analysis_preset_key(prompt: str) -> Optional[str]:
