@@ -140,6 +140,357 @@ def render_table(columns: list[tuple[str, str, str]], rows: list[dict]) -> str:
 
 
 
+# ===== Summary table preparation and markdown export =====
+import pandas as pd
+from .display import display_width as _display_width
+
+
+def _normalize_column_specs(specs):
+    normalized = []
+    for spec in specs:
+        if len(spec) == 3:
+            key, label, align = spec
+            include_compact = True
+        elif len(spec) == 4:
+            key, label, align, include_compact = spec
+        else:
+            raise ValueError("Invalid column specification")
+        normalized.append((str(key), str(label), str(align), bool(include_compact)))
+    return normalized
+
+
+def prepare_summary_table(frame: pd.DataFrame, lang: str):
+    ordered = (
+        frame.copy()
+        .sort_values(["momentum_rank", "momentum_score"], ascending=[True, False])
+        .reset_index(drop=True)
+    )
+
+    def compose_symbol(row: pd.Series) -> str:
+        name = str(row.get("name", "") or "").strip()
+        code = str(row.get("etf", "") or "").strip()
+        if name and code:
+            return f"{name} ({code})"
+        return name or code or "-"
+
+    ordered["symbol"] = ordered.apply(compose_symbol, axis=1)
+
+    def fmt_number(value, digits: int = 4) -> str:
+        import pandas as _pd
+        if value is None or _pd.isna(value):
+            return "-"
+        return f"{value:.{digits}f}"
+
+    def fmt_rank(value) -> str:
+        import pandas as _pd
+        if value is None or _pd.isna(value):
+            return "--"
+        return f"{int(value):02d}"
+
+    def fmt_change(value) -> str:
+        import pandas as _pd
+        if value is None or _pd.isna(value):
+            return "-"
+        return f"{value:+.0f}"
+
+    def fmt_ma(row: pd.Series) -> str:
+        import pandas as _pd
+        ma = row.get("ma200")
+        if ma is None or _pd.isna(ma):
+            return "-"
+        above = bool(row.get("above_ma200"))
+        status = "上" if lang == "zh" else "UP"
+        alt = "下" if lang == "zh" else "DN"
+        suffix = status if above else alt
+        return f"{ma:.4f}{suffix}"
+
+    ordered["momentum_fmt"] = ordered["momentum_score"].apply(fmt_number)
+    ordered["rank_fmt"] = ordered["momentum_rank"].apply(fmt_rank)
+    ordered["delta_fmt"] = ordered["rank_change"].apply(fmt_change)
+    ordered["close_fmt"] = ordered["close"].apply(fmt_number)
+    ordered["vwap_fmt"] = ordered["vwap"].apply(fmt_number)
+    ordered["ma_fmt"] = [fmt_ma(row) for _, row in ordered.iterrows()]
+
+    def fmt_chop_display(row: pd.Series) -> str:
+        base = fmt_number(row.get("chop"), 2)
+        state_label = chop_state_label(row.get("chop_state"), lang)
+        if state_label:
+            suffix = f"（{state_label}）" if lang == "zh" else f" ({state_label})"
+            return f"{base}{suffix}"
+        return base
+
+    def fmt_adx_display(row: pd.Series) -> str:
+        base = fmt_number(row.get("adx"), 2)
+        state_label = adx_state_label(row.get("adx_state"), lang)
+        if state_label:
+            suffix = f"（{state_label}）" if lang == "zh" else f" ({state_label})"
+            return f"{base}{suffix}"
+        return base
+
+    ordered["chop_fmt"] = [fmt_chop_display(row) for _, row in ordered.iterrows()]
+    ordered["trend_fmt"] = ordered["trend_slope"].apply(fmt_number)
+    ordered["atr_fmt"] = ordered["atr"].apply(fmt_number)
+    ordered["adx_fmt"] = [fmt_adx_display(row) for _, row in ordered.iterrows()]
+
+    def fmt_momentum_percentile(row: pd.Series) -> str:
+        import pandas as _pd
+        value = row.get("momentum_percentile")
+        if value is None or _pd.isna(value):
+            return "--"
+        flag = row.get("momentum_significant")
+        if flag is None or (isinstance(flag, float) and _pd.isna(flag)):
+            return "--"
+        mark = "✅" if bool(flag) else "❌"
+        return f"{mark}{value * 100:.1f}%"
+
+    def fmt_stability_display(row: pd.Series) -> str:
+        import pandas as _pd
+        value = row.get("stability")
+        if value is None or _pd.isna(value):
+            return "--"
+        return f"{float(value) * 100:.0f}%"
+
+    ordered["stability_fmt"] = [fmt_stability_display(row) for _, row in ordered.iterrows()]
+
+    def truncate(value: str, limit: int) -> str:
+        text = str(value).strip()
+        if limit <= 0:
+            return ""
+        if _display_width(text) <= limit:
+            return text
+        ellipsis = "..."
+        ellipsis_width = _display_width(ellipsis)
+        if ellipsis_width >= limit:
+            # 返回尽可能多的字符
+            trimmed: list[str] = []
+            consumed = 0
+            for char in text:
+                char_width = _display_width(char)
+                if consumed + char_width > limit:
+                    break
+                trimmed.append(char)
+                consumed += char_width
+            return "".join(trimmed)
+        target_width = limit - ellipsis_width
+        trimmed_chars: list[str] = []
+        consumed = 0
+        for char in text:
+            char_width = _display_width(char)
+            if consumed + char_width > target_width:
+                break
+            trimmed_chars.append(char)
+            consumed += char_width
+        if not trimmed_chars:
+            return ellipsis
+        return "".join(trimmed_chars) + ellipsis
+
+    rows: list[dict[str, str]] = []
+    for _, row in ordered.iterrows():
+        rows.append({
+            "symbol": truncate(row["symbol"], 26),
+            "rank_fmt": str(row["rank_fmt"]),
+            "delta_fmt": str(row["delta_fmt"]),
+            "momentum_fmt": str(row["momentum_fmt"]),
+            "mom_pct_fmt": str(row["mom_pct_fmt"]) if "mom_pct_fmt" in ordered.columns else str(fmt_momentum_percentile(row)),
+            "stability_fmt": str(row["stability_fmt"]),
+            "close_fmt": str(row["close_fmt"]),
+            "vwap_fmt": str(row["vwap_fmt"]),
+            "ma_fmt": str(row["ma_fmt"]),
+            "chop_fmt": str(row["chop_fmt"]),
+            "trend_fmt": str(row["trend_fmt"]),
+            "trend_ok_fmt": str("✅" if row.get("trend_ok") else ("❌" if row.get("trend_ok") is not None else "--")),
+            "atr_fmt": str(row["atr_fmt"]),
+            "adx_fmt": str(row["adx_fmt"]),
+            "__chop_state": row.get("chop_state"),
+            "__chop_p30": row.get("chop_p30"),
+            "__chop_p70": row.get("chop_p70"),
+            "__adx_state": row.get("adx_state"),
+            "__mom_significant": row.get("momentum_significant"),
+            "__trend_ok": row.get("trend_ok"),
+            "__stability": row.get("stability"),
+        })
+
+    if lang == "zh":
+        columns = [
+            ("symbol", "标的", "left", True),
+            ("rank_fmt", "排名", "right", True),
+            ("delta_fmt", "变动", "right", True),
+            ("momentum_fmt", "动量", "right", True),
+            ("mom_pct_fmt", "动量分位", "right", True),
+            ("stability_fmt", "稳定度", "right", True),
+            ("close_fmt", "收盘", "right", True),
+            ("vwap_fmt", "VWAP", "right", True),
+            ("ma_fmt", "200MA", "right", False),
+            ("chop_fmt", "Chop", "right", True),
+            ("trend_fmt", "趋势", "right", True),
+            ("trend_ok_fmt", "趋势一致", "center", True),
+            ("adx_fmt", "ADX", "right", True),
+            ("atr_fmt", "ATR", "right", True),
+        ]
+    else:
+        columns = [
+            ("symbol", "Symbol", "left", True),
+            ("rank_fmt", "Rank", "right", True),
+            ("delta_fmt", "ΔRank", "right", True),
+            ("momentum_fmt", "Momentum", "right", True),
+            ("mom_pct_fmt", "Mom%", "right", True),
+            ("stability_fmt", "Stability", "right", True),
+            ("close_fmt", "Close", "right", True),
+            ("vwap_fmt", "VWAP", "right", True),
+            ("ma_fmt", "MA200", "right", True),
+            ("chop_fmt", "Chop", "right", True),
+            ("trend_fmt", "Trend", "right", True),
+            ("trend_ok_fmt", "TrendOK", "center", True),
+            ("adx_fmt", "ADX", "right", True),
+            ("atr_fmt", "ATR", "right", True),
+        ]
+
+    return _normalize_column_specs(columns), rows
+
+
+def summary_to_markdown(frame: pd.DataFrame, lang: str) -> str:
+    if frame.empty:
+        return "*暂无可用的动量结果*" if lang == "zh" else "*No momentum results available.*"
+    columns, rows = prepare_summary_table(frame, lang)
+    if not rows:
+        return "*暂无可用的动量结果*" if lang == "zh" else "*No momentum results available.*"
+
+    columns = _normalize_column_specs(columns)
+
+    def escape(text: str) -> str:
+        return str(text).replace("|", "\\|")
+
+    header = "| " + " | ".join(header for _, header, _, _ in columns) + " |"
+    divider = "| " + " | ".join("---" for _ in columns) + " |"
+    body = [
+        "| " + " | ".join(escape(row.get(key, "-")) for key, _, _, _ in columns) + " |"
+        for row in rows
+    ]
+    return "\n".join([header, divider, *body])
+
+
+
+import shutil
+
+
+def format_summary_frame(frame: pd.DataFrame, lang: str, *, enable_color: bool = True) -> str:
+    if frame.empty:
+        return "暂无可用的动量结果。" if lang == "zh" else "No momentum results available."
+
+    columns, rows = prepare_summary_table(frame, lang)
+    if not rows:
+        return "暂无可用的动量结果。" if lang == "zh" else "No momentum results available."
+
+    columns = _normalize_column_specs(columns)
+
+    try:
+        terminal_width = shutil.get_terminal_size().columns
+    except OSError:
+        terminal_width = 120
+
+    # Compact view for narrow terminals
+    if terminal_width < 100:
+        compact_columns = [spec for spec in columns if spec[3]] or columns
+        lines: list[str] = []
+        for row in rows:
+            header = f"{row['rank_fmt']}. {row['symbol']}"
+            delta = row.get("delta_fmt")
+            if delta and delta not in {"-", "0"}:
+                header += f" (Δ{delta})"
+            try:
+                rank_value = int(row.get("rank_fmt", "0"))
+            except ValueError:
+                rank_value = 0
+            styled_header = style_rank_header(rank_value, header, enable_color=enable_color)
+            if enable_color:
+                lines.append(colorize(styled_header, "menu_text"))
+            else:
+                lines.append(styled_header)
+
+            field_parts: list[str] = []
+            for key, label, _, _ in compact_columns:
+                if key == "symbol":
+                    continue
+                value = row.get(key, "-")
+                field_parts.append(f"{label}:{value}")
+            body_text = " · ".join(field_parts)
+            import textwrap as _tw
+            wrapped = _tw.fill(
+                body_text,
+                width=max(terminal_width, 40),
+                initial_indent="    ",
+                subsequent_indent="    ",
+            )
+            lines.append(wrapped)
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    active_columns = columns
+    label_map = {key: label for key, label, _, _ in active_columns}
+
+    col_widths: dict[str, int] = {}
+    for key, header, _, _ in columns:
+        width_hint = _display_width(header)
+        for row in rows:
+            width_hint = max(width_hint, _display_width(row[key]))
+        col_widths[key] = width_hint
+
+    def _calc_total_width(specs) -> int:
+        if not specs:
+            return 0
+        total = 0
+        for idx, (key, _, _, _) in enumerate(specs):
+            total += col_widths[key]
+            if idx < len(specs) - 1:
+                total += 3
+        return total
+
+    max_table_width = max(terminal_width - 4, 60)
+    removable_priority = [
+        "trend_ok_fmt",
+        "mom_pct_fmt",
+        "atr_fmt",
+        "vwap_fmt",
+        "trend_fmt",
+        "ma_fmt",
+        "chop_fmt",
+    ]
+    while len(active_columns) > 5 and _calc_total_width(active_columns) > max_table_width:
+        removed = False
+        for key in removable_priority:
+            if any(col_key == key for col_key, _, _, _ in active_columns):
+                active_columns = [spec for spec in active_columns if spec[0] != key]
+                removed = True
+                break
+        if not removed:
+            break
+
+    label_map = {key: label for key, label, _, _ in active_columns}
+
+    def format_cell(key: str, text: str, align: str, row: dict | None = None) -> str:
+        width = col_widths[key]
+        padded = _pad_display(text, width, align)
+        if row is not None:
+            return style_summary_value(label_map[key], padded, row, enable_color=enable_color)
+        return colorize(padded, "header") if enable_color else padded
+
+    header_line = " | ".join(
+        format_cell(key, label, align) for key, label, align, _ in active_columns
+    )
+    separator_line = colorize(
+        "-+-".join("-" * col_widths[key] for key, _, _, _ in active_columns), "divider"
+    ) if enable_color else "-+-".join("-" * col_widths[key] for key, _, _, _ in active_columns)
+
+    body_lines: list[str] = []
+    for row in rows:
+        line_parts: list[str] = []
+        for key, _, align, _ in active_columns:
+            styled_value = format_cell(key, row[key], align, row=row)
+            line_parts.append(styled_value)
+        body_lines.append(" | ".join(line_parts))
+
+    return "\n".join([header_line, separator_line, *body_lines])
+
 # ---- Summary table preparation and rendering ----
 from .display import display_width as display_width
 from .colors import colorize

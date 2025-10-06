@@ -34,6 +34,8 @@ from .formatters import (
     adx_state_label,
     style_rank_header,
     style_summary_value,
+    prepare_summary_table,
+    summary_to_markdown,
 )
 
 __all__ = [
@@ -64,4 +66,6 @@ __all__ = [
     "adx_state_label",
     "style_rank_header",
     "style_summary_value",
+    "prepare_summary_table",
+    "summary_to_markdown",
 ]

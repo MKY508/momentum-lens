@@ -5182,58 +5182,8 @@ def _show_history_menu(last_state: Optional[dict]) -> Optional[dict]:
 
 
 def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
-    global _LAST_BACKTEST_CONTEXT
-    _maybe_prompt_bundle_refresh(True, "回测工具")
-    current_state = _ensure_analysis_state(last_state, context="回测工具")
-    if not current_state:
-        return last_state
-    while True:
-        options = [
-            {"key": "1", "label": "简易动量回测（当前参数）"},
-            {"key": "2", "label": "核心-卫星多区间回测"},
-            {"key": "3", "label": "动量回溯 / 图表"},
-            {"key": "4", "label": "导出策略脚本（当前参数）"},
-            {"key": "5", "label": "运行策略回测（慢腿/快腿/宏观驱动）"},
-            {"key": "6", "label": "刷新数据（运行快速分析）"},
-            {"key": "0", "label": "返回上级菜单"},
-        ]
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 回测与动量工具 ─" + "─" * 14,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="1",
-        )
-        if choice == "1":
-            _interactive_backtest(current_state)
-            continue
-        if choice == "2":
-            _run_core_satellite_multi_backtest(current_state)
-            continue
-        if choice == "3":
-            new_state = _show_history_menu(current_state)
-            if new_state:
-                current_state = new_state
-            continue
-        if choice == "4":
-            _interactive_export_strategy(current_state)
-            continue
-        if choice == "5":
-            _run_strategy_backtest_menu()
-            continue
-        if choice == "6":
-            refreshed = _run_quick_analysis(post_actions=False)
-            if refreshed:
-                current_state = refreshed
-                _LAST_BACKTEST_CONTEXT = None
-                print(colorize("已使用最新数据完成快速分析。", "value_positive"))
-            else:
-                print(colorize("刷新失败，请稍后再试或运行自定义分析。", "danger"))
-            _wait_for_ack()
-            continue
-        if choice in {"0", "__escape__"}:
-            return current_state
-        print(colorize("无效指令，请重新输入。", "warning"))
+    from .commands.backtest_menu import run as _run
+    return _run(last_state)
 
 
 def _show_templates_menu(last_state: Optional[dict]) -> Optional[dict]:
