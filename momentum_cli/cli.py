@@ -67,6 +67,17 @@ from .utils.colors import (
     apply_theme as _utils_apply_theme,
     get_current_theme as _utils_get_current_theme,
 )
+# 导入UI工具（渐进式迁移）
+from .ui import (
+    prompt_menu_choice as _ui_prompt_menu_choice,
+    supports_interactive_menu as _ui_supports_interactive_menu,
+    format_menu_item as _ui_format_menu_item,
+    menu_hint as _ui_menu_hint,
+    prompt_yes_no as _ui_prompt_yes_no,
+    prompt_text as _ui_prompt_text,
+    prompt_positive_int as _ui_prompt_positive_int,
+    prompt_optional_date as _ui_prompt_optional_date,
+)
 from .config.settings import (
     DEFAULT_SETTINGS as _DEFAULT_SETTINGS,
     SETTINGS_STORE_PATH,
@@ -1367,41 +1378,18 @@ def _format_menu_item(
     *,
     selected: bool = False,
 ) -> str:
-    if isinstance(index, str):
-        index_display = index.rjust(2)
-    else:
-        index_display = f"{index:>2}"
-    number_style = "menu_number" if enabled else "menu_disabled"
-    bullet_style = "menu_bullet" if enabled else "menu_disabled"
-    text_style = "menu_text" if enabled else "menu_disabled"
-    bullet_char = "›" if enabled else "·"
-    if selected and enabled:
-        number_style = "prompt"
-        bullet_style = "prompt"
-        text_style = "prompt"
-        bullet_char = "▶"
-    number = colorize(index_display, number_style)
-    bullet = colorize(bullet_char, bullet_style)
-    text = colorize(label, text_style)
-    return f" {number} {bullet} {text}"
+    """格式化菜单项（兼容层，使用ui.menu模块）"""
+    return _ui_format_menu_item(index, label, enabled, selected=selected)
 
 
 def _menu_hint(text: str) -> str:
-    return colorize(text, "menu_hint")
+    """菜单提示（兼容层，使用ui.menu模块）"""
+    return _ui_menu_hint(text)
 
 
 def _supports_interactive_menu() -> bool:
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return False
-    if msvcrt is not None:
-        return True
-    if termios is None or tty is None:
-        return False
-    try:
-        sys.stdin.fileno()
-    except (AttributeError, io.UnsupportedOperation):
-        return False
-    return True
+    """检查是否支持交互式菜单（兼容层，使用ui.menu模块）"""
+    return _ui_supports_interactive_menu()
 
 
 _ESC_SEQUENCE_TIMEOUT = 0.3
