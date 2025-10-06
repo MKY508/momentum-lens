@@ -122,23 +122,8 @@ _KEYLOG_PATH = Path(
 )
 
 
-def _log_key_event(label: str, payload: str) -> None:
-    if not _KEYLOG_ENABLED:
-        return
-    try:
-        escaped = payload.encode("unicode_escape", errors="backslashreplace").decode("ascii")
-        with _KEYLOG_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(f"{time.time():.6f} {label}: {escaped}\n")
-    except OSError:
-        pass
-
-
-def _log_key_result(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        _log_key_event("key", "<None>")
-    else:
-        _log_key_event("key", value)
-    return value
+# 调试日志函数已移至 utils.debug 模块
+from .utils.debug import log_key_event as _log_key_event, log_key_result as _log_key_result
 
 
 # 主题定义已移至 utils/colors.py

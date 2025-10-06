@@ -1,6 +1,6 @@
 """工具函数模块
 
-包含显示、解析、颜色等通用工具函数。
+包含显示、解析、颜色、调试等通用工具函数。
 """
 
 from .colors import (
@@ -12,6 +12,12 @@ from .colors import (
     render_theme_sample,
     get_rank_style,
     get_available_themes,
+)
+from .debug import (
+    log_key_event,
+    log_key_result,
+    is_keylog_enabled,
+    get_keylog_path,
 )
 from .display import (
     display_width,
@@ -34,6 +40,11 @@ __all__ = [
     "render_theme_sample",
     "get_rank_style",
     "get_available_themes",
+    # Debug utilities
+    "log_key_event",
+    "log_key_result",
+    "is_keylog_enabled",
+    "get_keylog_path",
     # Display utilities
     "display_width",
     "pad_display",
