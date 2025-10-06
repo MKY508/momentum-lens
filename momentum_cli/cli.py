@@ -1713,9 +1713,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# moved to utils.formatters
+from .utils import formatters as _fmt_utils
+
 def _prepare_summary_table(
     frame: pd.DataFrame, lang: str
 ) -> tuple[List[tuple[str, str, str]], List[dict[str, str]]]:
+    return _fmt_utils.prepare_summary_table(frame, lang)
     ordered = (
         frame.copy()
         .sort_values(["momentum_rank", "momentum_score"], ascending=[True, False])
@@ -1908,167 +1912,21 @@ def _prepare_summary_table(
     return _normalize_column_specs(columns), rows
 
 
-def _normalize_column_specs(
-    specs: Sequence[tuple[str, str, str] | tuple[str, str, str, bool]]
-) -> List[tuple[str, str, str, bool]]:
-    normalized: List[tuple[str, str, str, bool]] = []
-    for spec in specs:
-        if len(spec) == 3:
-            key, label, align = spec
-            include_compact = True
-        elif len(spec) == 4:
-            key, label, align, include_compact = spec
-        else:  # pragma: no cover - defensive programming
-            raise ValueError("Invalid column specification")
-        normalized.append((str(key), str(label), str(align), bool(include_compact)))
-    return normalized
+# moved to utils.formatters
+from .utils import formatters as _fmt_utils
+_normalize_column_specs = _fmt_utils.normalize_column_specs
 
+
+from .utils import formatters as _fmt_utils
 
 def format_summary_frame(frame: pd.DataFrame, lang: str) -> str:
-    if frame.empty:
-        return "暂无可用的动量结果。" if lang == "zh" else "No momentum results available."
+    return _fmt_utils.format_summary_frame(frame, lang, enable_color=_COLOR_ENABLED)
 
-    columns, rows = _prepare_summary_table(frame, lang)
-    if not rows:
-        return "暂无可用的动量结果。" if lang == "zh" else "No momentum results available."
 
-    columns = _normalize_column_specs(columns)
-
-    try:
-        terminal_width = shutil.get_terminal_size().columns
-    except OSError:
-        terminal_width = 120
-
-    if terminal_width < 100:
-        compact_columns = [spec for spec in columns if spec[3]]
-        if not compact_columns:
-            compact_columns = columns
-        lines: List[str] = []
-        for row in rows:
-            header = f"{row['rank_fmt']}. {row['symbol']}"
-            delta = row.get("delta_fmt")
-            if delta and delta not in {"-", "0"}:
-                header += f" (Δ{delta})"
-            try:
-                rank_value = int(row.get("rank_fmt", "0"))
-            except ValueError:
-                rank_value = 0
-            header = _style_rank_header(rank_value, header)
-            if _rank_style(rank_value) is None:
-                header = colorize(header, "menu_text")
-            lines.append(header)
-
-            field_parts = []
-            for key, label, _, _ in compact_columns:
-                if key == "symbol":
-                    continue
-                value = row.get(key, "-")
-                field_parts.append(f"{label}:{value}")
-            body_text = " · ".join(field_parts)
-            wrapped = textwrap.fill(
-                body_text,
-                width=max(terminal_width, 40),
-                initial_indent="    ",
-                subsequent_indent="    ",
-            )
-            lines.append(wrapped)
-            lines.append("")
-        return "\n".join(lines).strip()
-
-    active_columns = columns
-    label_map = {key: label for key, label, _, _ in active_columns}
-    col_widths: dict[str, int] = {}
-    for key, header, _, _ in columns:
-        width_hint = _display_width(header)
-        for row in rows:
-            width_hint = max(width_hint, _display_width(row[key]))
-        col_widths[key] = width_hint
-
-    def _calc_total_width(specs: Sequence[tuple[str, str, str, bool]]) -> int:
-        if not specs:
-            return 0
-        total = 0
-        for idx, (key, _, _, _) in enumerate(specs):
-            total += col_widths[key]
-            if idx < len(specs) - 1:
-                total += 3
-        return total
-
-    max_table_width = max(terminal_width - 4, 60)
-    removable_priority = [
-        "trend_ok_fmt",
-        "mom_pct_fmt",
-        "atr_fmt",
-        "vwap_fmt",
-        "trend_fmt",
-        "ma_fmt",
-        "chop_fmt",
-    ]
-    while len(active_columns) > 5 and _calc_total_width(active_columns) > max_table_width:
-        removed = False
-        for key in removable_priority:
-            if any(col_key == key for col_key, _, _, _ in active_columns):
-                active_columns = [spec for spec in active_columns if spec[0] != key]
-                removed = True
-                break
-        if not removed:
-            break
-
-    label_map = {key: label for key, label, _, _ in active_columns}
-
-    def format_cell(key: str, text: str, align: str, row: dict | None = None) -> str:
-        width = col_widths[key]
-        padded = _pad_display(text, width, align)
-        if row is not None:
-            return _style_summary_value(label_map[key], padded, row)
-        return colorize(padded, "header")
-
-    header_line = " | ".join(
-        format_cell(key, label, align) for key, label, align, _ in active_columns
-    )
-    separator_line = colorize(
-        "-+-".join("-" * col_widths[key] for key, _, _, _ in active_columns), "divider"
-    )
-
-    body_lines = []
-    for row in rows:
-        line_parts = []
-        for key, _, align, _ in active_columns:
-            styled_value = format_cell(key, row[key], align, row=row)
-            if key == "symbol" and _COLOR_ENABLED:
-                try:
-                    rank = int(row.get("rank_fmt", "0"))
-                except ValueError:
-                    rank = 0
-                rank_style = _rank_style(rank)
-                if rank_style:
-                    styled_value = colorize(styled_value, rank_style)
-            line_parts.append(styled_value)
-        body_lines.append(" | ".join(line_parts))
-
-    return "\n".join([header_line, separator_line, *body_lines])
-
+from .utils import formatters as _fmt_utils
 
 def _summary_to_markdown(frame: pd.DataFrame, lang: str) -> str:
-    if frame.empty:
-        return "*暂无可用的动量结果*" if lang == "zh" else "*No momentum results available.*"
-    columns, rows = _prepare_summary_table(frame, lang)
-    if not rows:
-        return "*暂无可用的动量结果*" if lang == "zh" else "*No momentum results available.*"
-    columns = _normalize_column_specs(columns)
-
-    def escape(text: str) -> str:
-        return text.replace("|", "\\|")
-
-    header = "| " + " | ".join(header for _, header, _, _ in columns) + " |"
-    divider = "| " + " | ".join("---" for _ in columns) + " |"
-    body = [
-        "| "
-        + " | ".join(escape(row.get(key, "-")) for key, _, _, _ in columns)
-        + " |"
-        for row in rows
-    ]
-    return "\n".join([header, divider, *body])
+    return _fmt_utils.summary_to_markdown(frame, lang)
 
 
 def _format_label(code: str) -> str:
