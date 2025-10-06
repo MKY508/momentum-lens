@@ -60,6 +60,13 @@ from .utils.display import strip_ansi as _strip_ansi
 from .utils.parsers import extract_float as _extract_float
 from .utils.parsers import parse_bundle_version as _parse_bundle_version
 from .utils.parsers import try_parse_datetime as _try_parse_datetime
+# 导入颜色工具（渐进式迁移）
+from .utils.colors import (
+    colorize as _utils_colorize,
+    set_color_enabled as _utils_set_color_enabled,
+    apply_theme as _utils_apply_theme,
+    get_current_theme as _utils_get_current_theme,
+)
 from .config.settings import (
     DEFAULT_SETTINGS as _DEFAULT_SETTINGS,
     SETTINGS_STORE_PATH,
@@ -347,6 +354,9 @@ if _STYLE_THEME not in _CLI_THEMES:
     _settings_dirty = True
 _STYLE_CODES = dict(_CLI_THEMES[_STYLE_THEME])
 
+# 同步主题到utils.colors模块
+_utils_apply_theme(_STYLE_THEME, persist=False)
+
 _PLOT_TEMPLATE = str(_SETTINGS.get("plot_template", _DEFAULT_SETTINGS["plot_template"]))
 if not isinstance(_PLOT_TEMPLATE, str):
     _PLOT_TEMPLATE = _DEFAULT_SETTINGS["plot_template"]
@@ -548,6 +558,8 @@ MAX_SERIES_EXPORT = 200
 
 
 _COLOR_ENABLED = sys.stdout.isatty()
+# 同步颜色状态到utils.colors模块
+_utils_set_color_enabled(_COLOR_ENABLED)
 _INTERACTIVE_MODE = False
 _LAST_BUNDLE_REFRESH: dt.datetime | None = None
 _LAST_BACKTEST_CONTEXT: dict | None = None
@@ -777,12 +789,9 @@ def _set_stability_weight(value: float, *, persist: bool = True) -> float:
 
 
 def colorize(text: str, style: str, fallback: str | None = None) -> str:
-    if not _COLOR_ENABLED:
-        return text
-    code = _STYLE_CODES.get(style) or (fallback and _STYLE_CODES.get(fallback))
-    if not code:
-        return text
-    return f"{code}{text}{_STYLE_CODES['reset']}"
+    """颜色化文本（兼容层，逐步迁移到utils.colors）"""
+    # 使用新的utils.colors模块
+    return _utils_colorize(text, style, fallback)
 
 
 def _apply_cli_theme(theme_key: str, *, persist: bool = True) -> bool:
