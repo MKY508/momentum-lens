@@ -101,3 +101,40 @@ def style_summary_value(label: str, value: str, row: Dict[str, Any], *, enable_c
         return colorize(value, style)
     return value
 
+from .display import display_width as _display_width, pad_display as _pad_display
+
+
+def render_table(columns: list[tuple[str, str, str]], rows: list[dict]) -> str:
+    if not rows:
+        return ""
+    col_widths: dict[str, int] = {}
+    for key, header, _ in columns:
+        width = _display_width(header)
+        for row in rows:
+            width = max(width, _display_width(str(row.get(key, ""))))
+        col_widths[key] = width
+
+    def fmt_cell(key: str, text: str, align: str, style: str | None = None) -> str:
+        padded = _pad_display(str(text), col_widths[key], align)
+        if style:
+            return colorize(padded, style)
+        return padded
+
+    header_line = " | ".join(
+        fmt_cell(key, header, align, style="header") for key, header, align in columns
+    )
+    separator_line = colorize(
+        "-+-".join("-" * col_widths[key] for key, _, _ in columns), "divider"
+    )
+
+    body_lines = []
+    for row in rows:
+        parts: list[str] = []
+        for key, _, align in columns:
+            value = row.get(key, "")
+            style = row.get(f"style_{key}")
+            parts.append(fmt_cell(key, value, align, style))
+        body_lines.append(" | ".join(parts))
+
+    return "\n".join([header_line, separator_line, *body_lines])
+

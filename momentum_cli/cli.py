@@ -4856,36 +4856,8 @@ def _render_backtest_table(rows: List[dict]) -> str:
         ("sharpe", "夏普", "right"),
         ("note", "备注", "left"),
     ]
-    col_widths: dict[str, int] = {}
-    for key, header, _ in columns:
-        width = _display_width(header)
-        for row in rows:
-            width = max(width, _display_width(row.get(key, "")))
-        col_widths[key] = width
-
-    def fmt_cell(key: str, text: str, align: str, style: str | None = None) -> str:
-        padded = _pad_display(text, col_widths[key], align)
-        if style:
-            return colorize(padded, style)
-        return padded
-
-    header_line = " | ".join(
-        fmt_cell(key, header, align, style="header") for key, header, align in columns
-    )
-    separator_line = colorize(
-        "-+-".join("-" * col_widths[key] for key, _, _ in columns), "divider"
-    )
-
-    body_lines = []
-    for row in rows:
-        parts: List[str] = []
-        for key, _, align in columns:
-            value = row.get(key, "")
-            style = row.get(f"style_{key}")
-            parts.append(fmt_cell(key, value, align, style))
-        body_lines.append(" | ".join(parts))
-
-    return "\n".join([header_line, separator_line, *body_lines])
+    from .utils import formatters as _fmt
+    return _fmt.render_table(columns, rows)
 
 
 def _run_core_satellite_multi_backtest(last_state: Optional[dict] = None) -> None:
