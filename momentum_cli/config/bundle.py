@@ -64,7 +64,7 @@ def bundle_status(force_refresh: bool = False, cache: dict | None = None) -> dic
         >>> status["state"] in ["fresh", "stale", "missing", "unknown"]  # doctest: +SKIP
         True
     """
-    if not force_refresh and cache is not None and cache:
+    if not force_refresh and cache is not None and len(cache) > 0:
         return cache
 
     metadata = load_bundle_metadata()

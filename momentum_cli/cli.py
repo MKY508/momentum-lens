@@ -567,7 +567,12 @@ def _set_color_enabled(flag: bool) -> None:
 
 
 def _maybe_prompt_bundle_refresh(interactive: bool, reason: str, *, force: bool = False) -> None:
-    global _BUNDLE_UPDATE_PROMPTED, _BUNDLE_WARNING_EMITTED
+    global _BUNDLE_UPDATE_PROMPTED, _BUNDLE_WARNING_EMITTED, _BUNDLE_STATUS_CACHE
+
+    # 初始化缓存如果为None
+    if _BUNDLE_STATUS_CACHE is None:
+        _BUNDLE_STATUS_CACHE = {}
+
     status = _bundle_status(cache=_BUNDLE_STATUS_CACHE)
     state = status.get("state")
     if state == "fresh" and not force:
@@ -4269,6 +4274,11 @@ def _configure_stability_settings() -> None:
 
 def _update_data_bundle() -> None:
     global _LAST_BUNDLE_REFRESH, _LAST_BACKTEST_CONTEXT, _BUNDLE_STATUS_CACHE, _BUNDLE_UPDATE_PROMPTED
+
+    # 初始化缓存如果为None
+    if _BUNDLE_STATUS_CACHE is None:
+        _BUNDLE_STATUS_CACHE = {}
+
     status = _bundle_status(force_refresh=True, cache=_BUNDLE_STATUS_CACHE)
     if status.get("state") == "fresh":
         version_display = status.get("version") or status.get("version_raw") or "最新版本"
