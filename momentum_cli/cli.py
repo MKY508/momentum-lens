@@ -2676,63 +2676,20 @@ def _install_optional_dependencies() -> None:
         )
 
 
+# Moved to business.config (57 lines)
+from .business import configure_cli_theme_interactive as _biz_config_cli_theme
+
 def _configure_cli_theme() -> None:
-    while True:
-        current_info = _CLI_THEME_INFO.get(_STYLE_THEME, {"label": _STYLE_THEME})
-        header_lines = [
-            "",
-            colorize(
-                f"当前主题: {current_info.get('label', _STYLE_THEME)} ({_STYLE_THEME})",
-                "menu_text",
-            ),
-        ]
-        if current_info.get("description"):
-            header_lines.append(colorize(f"说明: {current_info['description']}", "menu_hint"))
-        options: List[Dict[str, Any]] = []
-        default_key = "1"
-        for idx, key in enumerate(_CLI_THEME_ORDER, start=1):
-            info = _CLI_THEME_INFO.get(key, {"label": key})
-            marker = "✓" if key == _STYLE_THEME else " "
-            label = info.get("label", key)
-            extra_lines: List[str] = []
-            if info.get("description"):
-                extra_lines.append(colorize(f"     {info['description']}", "menu_hint"))
-            extra_lines.append(_render_theme_sample(key))
-            option = {
-                "key": key,
-                "display": str(idx),
-                "label": f"[{marker}] {label} ({key})",
-                "extra_lines": extra_lines,
-            }
-            options.append(option)
-            if key == _STYLE_THEME:
-                default_key = key
-        options.append({"key": "0", "label": "返回上级菜单"})
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 终端主题与色彩 ─" + "─" * 18,
-            header_lines=header_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key=default_key,
-        )
-        if choice in {"0", "__escape__"}:
-            return
-        selected: Optional[str] = None
-        if choice in _CLI_THEMES:
-            selected = choice
-        elif choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(_CLI_THEME_ORDER):
-                selected = _CLI_THEME_ORDER[idx - 1]
-        if not selected:
-            print(colorize("输入无效，请重新选择。", "warning"))
-            continue
-        if selected == _STYLE_THEME:
-            print(colorize("当前已经是该主题。", "info"))
-            continue
-        if _apply_cli_theme(selected):
-            info = _CLI_THEME_INFO.get(selected, {"label": selected})
-            print(colorize(f"已切换到 {info.get('label', selected)} 主题。", "value_positive"))
+    _biz_config_cli_theme(
+        current_theme=_STYLE_THEME,
+        theme_order=_CLI_THEME_ORDER,
+        theme_info=_CLI_THEME_INFO,
+        available_themes=_CLI_THEMES,
+        apply_theme_func=_apply_cli_theme,
+        render_sample_func=_render_theme_sample,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+    )
 
 
 # Moved to business.config (72 lines)
@@ -2778,68 +2735,26 @@ def _configure_correlation_threshold() -> None:
     )
 
 
+# Moved to business.config (63 lines)
+from .business import configure_signal_thresholds_interactive as _biz_config_signal_thresholds
+
 def _configure_signal_thresholds() -> None:
-    print("\n" + colorize("┌─ 动量与趋势阈值 ─" + "─" * 16, "divider"))
-    print(colorize(
-        f"动量分位回溯天数: {_MOMENTUM_SIGNIFICANCE_LOOKBACK} · 分位阈值: {_MOMENTUM_SIGNIFICANCE_THRESHOLD:.2f}",
-        "menu_text",
-    ))
-    print(colorize(
-        f"趋势一致条件: ADX>{_TREND_CONSISTENCY_ADX:.1f} · Chop<{_TREND_CONSISTENCY_CHOP:.1f} · EMA{_TREND_FAST_SPAN}/EMA{_TREND_SLOW_SPAN}",
-        "menu_hint",
-    ))
-
-    def _update_int(prompt: str, setter, current_value: int) -> None:
-        raw_local = input(colorize(prompt, "prompt")).strip()
-        if not raw_local:
-            return
-        if not raw_local.isdigit():
-            print(colorize("请输入正整数。", "warning"))
-            return
-        value_local = int(raw_local)
-        updated_value = setter(value_local)
-        print(colorize(f"已更新为 {updated_value}", "value_positive"))
-
-    def _update_float(prompt: str, setter) -> None:
-        raw_local = input(colorize(prompt, "prompt")).strip()
-        if not raw_local:
-            return
-        try:
-            value_local = float(raw_local)
-        except ValueError:
-            print(colorize("请输入数值。", "warning"))
-            return
-        updated_value = setter(value_local)
-        print(colorize(f"已更新为 {updated_value:.2f}", "value_positive"))
-
-    _update_int(
-        f"动量分位回溯天数（当前 {_MOMENTUM_SIGNIFICANCE_LOOKBACK}）: ",
-        lambda v: _set_momentum_significance_lookback(v),
-        _MOMENTUM_SIGNIFICANCE_LOOKBACK,
+    _biz_config_signal_thresholds(
+        momentum_lookback=_MOMENTUM_SIGNIFICANCE_LOOKBACK,
+        momentum_threshold=_MOMENTUM_SIGNIFICANCE_THRESHOLD,
+        trend_adx=_TREND_CONSISTENCY_ADX,
+        trend_chop=_TREND_CONSISTENCY_CHOP,
+        trend_fast_span=_TREND_FAST_SPAN,
+        trend_slow_span=_TREND_SLOW_SPAN,
+        set_momentum_lookback_func=_set_momentum_significance_lookback,
+        set_momentum_threshold_func=_set_momentum_significance_threshold,
+        set_trend_adx_func=_set_trend_consistency_adx,
+        set_trend_chop_func=_set_trend_consistency_chop,
+        set_trend_fast_span_func=_set_trend_fast_span,
+        set_trend_slow_span_func=_set_trend_slow_span,
+        colorize_func=colorize,
+        prompt_input_func=input,
     )
-    _update_float(
-        f"动量分位阈值 0-0.99（当前 {_MOMENTUM_SIGNIFICANCE_THRESHOLD:.2f}）: ",
-        lambda v: _set_momentum_significance_threshold(v),
-    )
-    _update_float(
-        f"Trend ADX 阈值（当前 {_TREND_CONSISTENCY_ADX:.1f}）: ",
-        lambda v: _set_trend_consistency_adx(v),
-    )
-    _update_float(
-        f"Trend Chop 阈值（当前 {_TREND_CONSISTENCY_CHOP:.1f}）: ",
-        lambda v: _set_trend_consistency_chop(v),
-    )
-    _update_int(
-        f"EMA 快线跨度（当前 {_TREND_FAST_SPAN}）: ",
-        lambda v: _set_trend_fast_span(v),
-        _TREND_FAST_SPAN,
-    )
-    _update_int(
-        f"EMA 慢线跨度（当前 {_TREND_SLOW_SPAN}）: ",
-        lambda v: _set_trend_slow_span(v),
-        _TREND_SLOW_SPAN,
-    )
-    print(colorize("阈值设置已更新。后续分析将应用新的判定条件。", "menu_hint"))
 
 
 def _configure_stability_settings() -> None:

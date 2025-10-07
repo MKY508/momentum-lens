@@ -46,6 +46,8 @@ from .alerts import (
 from .config import (
     configure_correlation_threshold_interactive,
     configure_plot_style_interactive,
+    configure_cli_theme_interactive,
+    configure_signal_thresholds_interactive,
 )
 
 __all__ = [
@@ -87,4 +89,6 @@ __all__ = [
     # Config
     "configure_correlation_threshold_interactive",
     "configure_plot_style_interactive",
+    "configure_cli_theme_interactive",
+    "configure_signal_thresholds_interactive",
 ]
