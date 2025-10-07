@@ -3767,23 +3767,13 @@ def _prompt_yes_no(question: str, default: bool = True) -> bool:
         print(colorize("请输入 y 或 n。", "warning"))
 
 
+# Moved to ui.input.wait_for_key
+from .ui import wait_for_key as _ui_wait_for_key
+
 def _wait_for_ack(message: str = "按任意键继续...") -> None:
     if not _INTERACTIVE_MODE:
         return
-    prompt_text = colorize(message, "menu_hint")
-    if _supports_interactive_menu():
-        sys.stdout.write(prompt_text)
-        sys.stdout.flush()
-        key = _read_keypress()
-        if key is None:
-            sys.stdout.write("\n")
-            inp_prompt = colorize("按回车继续...", "prompt")
-            input(inp_prompt)
-            return
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-    else:
-        input(colorize(f"{message} (回车确认)", "prompt"))
+    _ui_wait_for_key(message)
 
 
 def _prompt_date(question: str, default: Optional[str] = None) -> Optional[str]:
