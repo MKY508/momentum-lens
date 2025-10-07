@@ -2054,6 +2054,9 @@ def _render_text_report(
     return "\n".join(lines).strip()
 
 
+# Moved to business.reports (113 lines)
+from .business import render_markdown_report as _biz_render_md_report
+
 def _render_markdown_report(
     result,
     config: AnalysisConfig,
@@ -2061,113 +2064,18 @@ def _render_markdown_report(
     preset: AnalysisPreset | None,
     lang: str,
 ) -> str:
-    lines: List[str] = []
-    title = "# 动量分析报告" if lang == "zh" else "# Momentum Analysis Report"
-    lines.append(title)
-
-    alerts = _collect_alerts(result)
-
-    start_text = config.start_date or ("最早可用" if lang == "zh" else "Earliest")
-    end_text = config.end_date or ("最新交易日" if lang == "zh" else "Latest available")
-    lines.append("")
-    if lang == "zh":
-        lines.append(f"- 分析区间：{start_text} → {end_text}")
-        lines.append(f"- 券池数量：{len(result.summary)}")
-        lines.append(
-            f"- 动量窗口：{', '.join(str(w) for w in momentum_config.windows)}"
-        )
-        if momentum_config.weights:
-            lines.append(
-                f"- 动量权重：{', '.join(f'{w:.2f}' for w in momentum_config.weights)}"
-            )
-        lines.append(
-            f"- 参数：Corr {config.corr_window} / Chop {config.chop_window} / 趋势 {config.trend_window} / 回溯 {config.rank_change_lookback}"
-        )
-        if preset:
-            lines.append(
-                f"- 分析预设：{preset.name} [{preset.key}] - {preset.description}"
-            )
-    else:
-        lines.append(f"- Range: {start_text} → {end_text}")
-        lines.append(f"- Universe size: {len(result.summary)} ETFs")
-        lines.append(
-            f"- Momentum windows: {', '.join(str(w) for w in momentum_config.windows)}"
-        )
-        if momentum_config.weights:
-            lines.append(
-                f"- Momentum weights: {', '.join(f'{w:.2f}' for w in momentum_config.weights)}"
-            )
-        lines.append(
-            f"- Parameters: Corr {config.corr_window} / Chop {config.chop_window} / Trend {config.trend_window} / Rank lookback {config.rank_change_lookback}"
-        )
-        if preset:
-            lines.append(
-                f"- Preset: {preset.name} [{preset.key}] - {preset.description}"
-            )
-
-    gate_entries = _build_strategy_gate_entries(result, lang)
-    if gate_entries:
-        icon_map = {
-            "warning": "⚠️ ",
-            "menu_hint": "ℹ️ ",
-            "menu_text": "",
-        }
-        lines.append("")
-        lines.append("## 策略闸口" if lang == "zh" else "## Strategy Gates")
-        for text, style in gate_entries:
-            prefix = icon_map.get(style, "")
-            lines.append(f"- {prefix}{text}")
-
-    lines.append("")
-    lines.append("## Summary")
-    lines.append(_summary_to_markdown(result.summary, lang))
-    lines.append("")
-    lines.append("## Correlation")
-    lines.append(_correlation_to_markdown(result.correlation.round(2), lang))
-    lines.append("")
-
-    if alerts.get("momentum_rank_drops") or alerts.get("high_correlation_pairs"):
-        lines.append("## 预警提示" if lang == "zh" else "## Alerts")
-        if alerts.get("momentum_rank_drops"):
-            if lang == "zh":
-                lines.append("- 动量排名连续走弱：")
-                for item in alerts["momentum_rank_drops"]:
-                    lines.append(
-                        f"  - {item['label']}：{item['start_rank']} → {item['end_rank']}，连续 {item['weeks']} 周下滑"
-                    )
-            else:
-                lines.append("- Momentum ranks weakening:")
-                for item in alerts["momentum_rank_drops"]:
-                    lines.append(
-                        f"  - {item['label']} : {item['start_rank']} → {item['end_rank']} over {item['weeks']} consecutive weeks"
-                    )
-        if alerts.get("high_correlation_pairs"):
-            threshold_text = f"{_CORRELATION_ALERT_THRESHOLD:.2f}"
-            if lang == "zh":
-                lines.append(f"- 高相关性（ρ ≥ {threshold_text}）：")
-                for item in alerts["high_correlation_pairs"]:
-                    lines.append(
-                        f"  - {item['label_a']} ↔ {item['label_b']} : {item['value']:.2f}"
-                    )
-            else:
-                lines.append(f"- High correlations (ρ ≥ {threshold_text}):")
-                for item in alerts["high_correlation_pairs"]:
-                    lines.append(
-                        f"  - {item['label_a']} ↔ {item['label_b']} : {item['value']:.2f}"
-                    )
-        lines.append("")
-
-    if lang == "zh":
-        lines.append(f"运行耗时：{result.runtime_seconds:.2f} 秒")
-    else:
-        lines.append(f"Runtime: {result.runtime_seconds:.2f} seconds")
-    if result.plot_paths:
-        lines.append("")
-        lines.append("## 图表 / Plots")
-        for path in result.plot_paths:
-            lines.append(f"- {path}")
-
-    return "\n".join(lines).strip()
+    return _biz_render_md_report(
+        result,
+        config,
+        momentum_config,
+        preset,
+        lang,
+        summary_to_md_func=_summary_to_markdown,
+        correlation_to_md_func=lambda c, l: _correlation_to_markdown(c, l),
+        build_gate_entries_func=_build_strategy_gate_entries,
+        collect_alerts_func=_collect_alerts,
+        correlation_threshold=_CORRELATION_ALERT_THRESHOLD,
+    )
 
 
 def _print_presets() -> None:
@@ -3010,44 +2918,11 @@ def _parse_index_list(raw: str, upper_bound: int) -> Optional[List[int]]:
     return sorted(set(indices))
 
 
-def _prompt_yes_no(question: str, default: bool = True) -> bool:
-    default_label = "是" if default else "否"
-    prompt_text = f"{question} 默认{default_label}，按 y/n 或回车确认: "
+# Delegated to ui.prompt_yes_no
+from .ui import prompt_yes_no as _ui_prompt_yes_no
 
-    if _supports_interactive_menu():
-        while True:
-            sys.stdout.write(colorize(prompt_text, "prompt"))
-            sys.stdout.flush()
-            key = _read_keypress()
-            if key is None:
-                sys.stdout.write("\n")
-                break
-            if key == "ENTER":
-                sys.stdout.write("\n")
-                return default
-            if len(key) == 1:
-                lower = key.lower()
-                if lower in {"y", "yes", "是"}:
-                    sys.stdout.write(f"{key}\n")
-                    return True
-                if lower in {"n", "no", "否"}:
-                    sys.stdout.write(f"{key}\n")
-                    return False
-            if key == "ESC":
-                sys.stdout.write("\n")
-                return default
-            sys.stdout.write("\a")
-            sys.stdout.flush()
-    # Fallback: standard input
-    while True:
-        raw = input(colorize(prompt_text, "prompt")).strip().lower()
-        if not raw:
-            return default
-        if raw in {"y", "yes", "是"}:
-            return True
-        if raw in {"n", "no", "否"}:
-            return False
-        print(colorize("请输入 y 或 n。", "warning"))
+def _prompt_yes_no(question: str, default: bool = True) -> bool:
+    return _ui_prompt_yes_no(question, default)
 
 
 # Moved to ui.input.wait_for_key
@@ -3059,27 +2934,18 @@ def _wait_for_ack(message: str = "按任意键继续...") -> None:
     _ui_wait_for_key(message)
 
 
-def _prompt_date(question: str, default: Optional[str] = None) -> Optional[str]:
-    hint = f"默认 {default}" if default else "按回车跳过"
-    while True:
-        raw = input(colorize(f"{question}（YYYY-MM-DD，{hint}）: ", "prompt")).strip()
-        if not raw:
-            return default
-        try:
-            dt.datetime.strptime(raw, "%Y-%m-%d")
-            return raw
-        except ValueError:
-            print(colorize("日期格式不正确，请重新输入。", "warning"))
+# Delegated to ui.prompt_optional_date
+from .ui import prompt_optional_date as _ui_prompt_optional_date
 
+def _prompt_date(question: str, default: Optional[str] = None) -> Optional[str]:
+    return _ui_prompt_optional_date(question, default)
+
+
+# Delegated to ui.prompt_positive_int
+from .ui import prompt_positive_int as _ui_prompt_positive_int
 
 def _prompt_int(question: str, default: int) -> int:
-    while True:
-        raw = input(colorize(f"{question}（默认 {default}）: ", "prompt")).strip()
-        if not raw:
-            return default
-        if raw.isdigit():
-            return int(raw)
-        print(colorize("请输入正整数。", "warning"))
+    return _ui_prompt_positive_int(question, default)
 
 
 def _prompt_windows(default_windows: Sequence[int]) -> Sequence[int]:
@@ -3765,68 +3631,11 @@ def _obtain_backtest_context(
     return context
 
 
+# Moved to business.backtest (63 lines)
+from .business.backtest import run_simple_backtest as _biz_run_simple_backtest
+
 def _run_simple_backtest(result, preset: AnalysisPreset, top_n: int = 2) -> None:
-    close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()})
-    close_df = close_df.sort_index().dropna(how="all")
-    if close_df.empty:
-        print(colorize("无法回测：价格数据为空。", "warning"))
-        return
-    returns_df = close_df.pct_change().fillna(0)
-
-    aligned_scores = result.momentum_scores.reindex(close_df.index).ffill()
-    if aligned_scores.dropna(how="all").empty:
-        print(colorize("无法回测：动量得分为空。", "warning"))
-        return
-    momentum_df = aligned_scores
-
-    rebalance_dates = close_df.resample("ME").last().index
-    if rebalance_dates.empty:
-        rebalance_dates = close_df.index
-
-    weights = pd.DataFrame(0.0, index=close_df.index, columns=close_df.columns)
-    current_codes: List[str] = []
-    for date in close_df.index:
-        if date in rebalance_dates:
-            scores = momentum_df.loc[date].dropna()
-            top_codes = scores.sort_values(ascending=False).head(top_n).index.tolist()
-            current_codes = [code for code in top_codes if code in close_df.columns]
-        if current_codes:
-            weights.loc[date, current_codes] = 1.0 / len(current_codes)
-
-    portfolio_returns = (weights.shift().fillna(0) * returns_df).sum(axis=1)
-    cumulative = (1 + portfolio_returns).cumprod()
-    total_return = cumulative.iloc[-1] - 1 if not cumulative.empty else 0
-    periods_per_year = 252
-    ann_return = (
-        (1 + total_return) ** (periods_per_year / len(portfolio_returns)) - 1
-        if len(portfolio_returns) > 0
-        else 0
-    )
-    drawdown = cumulative / cumulative.cummax() - 1 if not cumulative.empty else pd.Series()
-    max_drawdown = drawdown.min() if not drawdown.empty else 0
-    sharpe = (
-        (portfolio_returns.mean() / portfolio_returns.std()) * np.sqrt(periods_per_year)
-        if portfolio_returns.std() != 0
-        else 0
-    )
-
-    print(colorize("\n=== 简易回测结果 ===", "heading"))
-    preset_line = f"预设: {preset.name} [{preset.key}]，每月调仓，持仓上限 {top_n} 条腿"
-    print(colorize(preset_line, "menu_text"))
-    print(colorize(f"累计收益: {total_return:.2%}", "value_positive" if total_return >= 0 else "value_negative"))
-    print(colorize(f"年化收益: {ann_return:.2%}", "value_positive" if ann_return >= 0 else "value_negative"))
-    print(colorize(f"最大回撤: {max_drawdown:.2%}", "danger"))
-    print(colorize(f"夏普比率: {sharpe:.2f}", "accent" if sharpe > 0 else "warning"))
-
-    if current_codes:
-        last_weights = weights.iloc[-1]
-        holding_lines: List[str] = []
-        for code in current_codes:
-            weight = float(last_weights.get(code, 0.0))
-            label = _format_label(code)
-            holding_lines.append(f"{label}: {weight:.1%}")
-        print(colorize("最新持仓结构:", "heading"))
-        print(colorize("; ".join(holding_lines), "menu_text"))
+    _biz_run_simple_backtest(result, preset, top_n)
 
 
 #   business.backtest

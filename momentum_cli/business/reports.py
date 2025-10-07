@@ -418,6 +418,108 @@ def build_result_payload(
     if not stability_series.empty:
         stability_series.rename(columns={stability_series.columns[0]: "date"}, inplace=True)
         stability_series["date"] = stability_series["date"].astype(str)
+
+
+def render_markdown_report(
+    result,
+    config,
+    momentum_config,
+    preset,
+    lang: str,
+    summary_to_md_func,
+    correlation_to_md_func,
+    build_gate_entries_func,
+    collect_alerts_func,
+    correlation_threshold: float,
+) -> str:
+    lines: list[str] = []
+    title = "# 动量分析报告" if lang == "zh" else "# Momentum Analysis Report"
+    lines.append(title)
+
+    alerts = collect_alerts_func(result)
+
+    start_text = config.start_date or ("最早可用" if lang == "zh" else "Earliest")
+    end_text = config.end_date or ("最新交易日" if lang == "zh" else "Latest available")
+    lines.append("")
+    if lang == "zh":
+        lines.append(f"- 分析区间：{start_text} → {end_text}")
+        lines.append(f"- 券池数量：{len(result.summary)}")
+        lines.append(f"- 动量窗口：{', '.join(str(w) for w in momentum_config.windows)}")
+        if momentum_config.weights:
+            lines.append(f"- 动量权重：{', '.join(f'{w:.2f}' for w in momentum_config.weights)}")
+        lines.append(
+            f"- 参数：Corr {config.corr_window} / Chop {config.chop_window} / 趋势 {config.trend_window} / 回溯 {config.rank_change_lookback}"
+        )
+        if preset:
+            lines.append(f"- 分析预设：{preset.name} [{preset.key}] - {preset.description}")
+    else:
+        lines.append(f"- Range: {start_text} → {end_text}")
+        lines.append(f"- Universe size: {len(result.summary)} ETFs")
+        lines.append(f"- Momentum windows: {', '.join(str(w) for w in momentum_config.windows)}")
+        if momentum_config.weights:
+            lines.append(f"- Momentum weights: {', '.join(f'{w:.2f}' for w in momentum_config.weights)}")
+        lines.append(
+            f"- Parameters: Corr {config.corr_window} / Chop {config.chop_window} / Trend {config.trend_window} / Rank lookback {config.rank_change_lookback}"
+        )
+        if preset:
+            lines.append(f"- Preset: {preset.name} [{preset.key}] - {preset.description}")
+
+    gate_entries = build_gate_entries_func(result, lang)
+    if gate_entries:
+        icon_map = {"warning": "⚠️ ", "menu_hint": "ℹ️ ", "menu_text": ""}
+        lines.append("")
+        lines.append("## 策略闸口" if lang == "zh" else "## Strategy Gates")
+        for text, style in gate_entries:
+            prefix = icon_map.get(style, "")
+            lines.append(f"- {prefix}{text}")
+
+    lines.append("")
+    lines.append("## Summary")
+    lines.append(summary_to_md_func(result.summary, lang))
+    lines.append("")
+    lines.append("## Correlation")
+    lines.append(correlation_to_md_func(result.correlation.round(2), lang))
+    lines.append("")
+
+    if alerts.get("momentum_rank_drops") or alerts.get("high_correlation_pairs"):
+        lines.append("## 预警提示" if lang == "zh" else "## Alerts")
+        if alerts.get("momentum_rank_drops"):
+            if lang == "zh":
+                lines.append("- 动量排名连续走弱：")
+                for item in alerts["momentum_rank_drops"]:
+                    lines.append(
+                        f"  - {item['label']}：{item['start_rank']} → {item['end_rank']}，连续 {item['weeks']} 周下滑"
+                    )
+            else:
+                lines.append("- Momentum ranks weakening:")
+                for item in alerts["momentum_rank_drops"]:
+                    lines.append(
+                        f"  - {item['label']} : {item['start_rank']} → {item['end_rank']} over {item['weeks']} consecutive weeks"
+                    )
+        if alerts.get("high_correlation_pairs"):
+            threshold_text = f"{correlation_threshold:.2f}"
+            if lang == "zh":
+                lines.append(f"- 高相关性（ρ ≥ {threshold_text}）：")
+                for item in alerts["high_correlation_pairs"]:
+                    lines.append(f"  - {item['label_a']} ↔ {item['label_b']} : {item['value']:.2f}")
+            else:
+                lines.append(f"- High correlations (ρ ≥ {threshold_text}):")
+                for item in alerts["high_correlation_pairs"]:
+                    lines.append(f"  - {item['label_a']} ↔ {item['label_b']} : {item['value']:.2f}")
+        lines.append("")
+
+    if lang == "zh":
+        lines.append(f"运行耗时：{result.runtime_seconds:.2f} 秒")
+    else:
+        lines.append(f"Runtime: {result.runtime_seconds:.2f} seconds")
+    if result.plot_paths:
+        lines.append("")
+        lines.append("## 图表 / Plots")
+        for path in result.plot_paths:
+            lines.append(f"- {path}")
+
+    return "\n".join(lines).strip()
+
     else:
         stability_series["date"] = []
     stability_json = json.loads(
