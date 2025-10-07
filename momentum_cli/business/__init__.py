@@ -8,6 +8,11 @@ from .reports import (
     render_markdown_report,
     format_summary_table,
     generate_quick_summary,
+    display_analysis_summary,
+)
+from .analysis_presets import (
+    print_analysis_presets,
+    print_analysis_preset_details,
 )
 from .templates import (
     build_builtin_template,
@@ -42,6 +47,10 @@ __all__ = [
     "render_markdown_report",
     "format_summary_table",
     "generate_quick_summary",
+    "display_analysis_summary",
+    # Analysis Presets
+    "print_analysis_presets",
+    "print_analysis_preset_details",
     # Templates
     "build_builtin_template",
     "get_builtin_template_store",

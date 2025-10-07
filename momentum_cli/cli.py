@@ -2731,33 +2731,11 @@ def _show_preset_settings_menu() -> None:
         print(colorize("无效指令，请重新输入。", "warning"))
 
 
+# Moved to business.analysis_presets
+from .business import print_analysis_presets as _business_print_analysis_presets
+
 def _print_analysis_presets() -> None:
-    print(colorize("可用分析预设：", "heading"))
-    for idx, preset in enumerate(ANALYSIS_PRESETS.values(), start=1):
-        notes = f"（{preset.notes}）" if preset.notes else ""
-        title = colorize(
-            f" {idx:>2}. {preset.name} [{preset.key}] - {preset.description}{notes}",
-            "menu_text",
-        )
-        win_str = ",".join(str(w) for w in preset.momentum_windows)
-        weight_str = (
-            ",".join(f"{w:.2f}" for w in preset.momentum_weights)
-            if preset.momentum_weights
-            else "等权"
-        )
-        skip_str = (
-            ",".join(str(s) for s in preset.momentum_skip_windows)
-            if preset.momentum_skip_windows
-            else "0"
-        )
-        detail = colorize(
-            "    "
-            + f"窗口 {win_str} | 剔除 {skip_str} | 权重 {weight_str} | Corr {preset.corr_window} | "
-            + f"Chop {preset.chop_window} | 趋势 {preset.trend_window} | 排名回溯 {preset.rank_lookback}",
-            "menu_hint",
-        )
-        print(title)
-        print(detail)
+    _business_print_analysis_presets(ANALYSIS_PRESETS)
 
 
 from .analysis_presets import preset_status_label as _analysis_preset_status_label
@@ -2785,29 +2763,11 @@ def _select_analysis_preset_key(prompt: str) -> Optional[str]:
     return None
 
 
+# Moved to business.analysis_presets
+from .business import print_analysis_preset_details as _business_print_analysis_preset_details
+
 def _print_analysis_preset_details(key: str, preset: AnalysisPreset) -> None:
-    win_str = ",".join(str(w) for w in preset.momentum_windows)
-    weight_str = (
-        ",".join(f"{w:.2f}" for w in preset.momentum_weights)
-        if preset.momentum_weights
-        else "等权"
-    )
-    skip_str = (
-        ",".join(str(s) for s in preset.momentum_skip_windows)
-        if preset.momentum_skip_windows
-        else "0"
-    )
-    notes = preset.notes or "-"
-    print(colorize(f"预设：{preset.name} [{key}]（{_analysis_preset_status_label(key)}）", "heading"))
-    print(colorize(f"  描述: {preset.description}", "menu_text"))
-    print(
-        colorize(
-            f"  窗口: {win_str} | 剔除: {skip_str} | 权重: {weight_str} | Corr {preset.corr_window} | "
-            f"Chop {preset.chop_window} | 趋势 {preset.trend_window} | 回溯 {preset.rank_lookback}",
-            "menu_hint",
-        )
-    )
-    print(colorize(f"  备注: {notes}", "menu_hint"))
+    _business_print_analysis_preset_details(key, preset, status_label_func=_analysis_preset_status_label)
 
 
 def _interactive_edit_analysis_preset_entry(existing_key: Optional[str] = None) -> None:
@@ -4717,32 +4677,16 @@ def _make_backtest_preset(
     )
 
 
+# Moved to business.reports
+from .business import display_analysis_summary as _business_display_analysis_summary
+
 def _display_analysis_summary(state: dict) -> None:
-    report_text = state.get("report_text")
-    if report_text:
-        print(report_text)
-        return
-    result = state["result"]
-    config = state["config"]
-    print(colorize("\n=== 动量汇总 ===", "heading"))
-    print(format_summary_frame(result.summary, "zh"))
-    print(
-        colorize(
-            f"\n=== 相关系数矩阵 (近 {config.corr_window} 个交易日) ===",
-            "heading",
-        )
+    _business_display_analysis_summary(
+        state,
+        format_summary_func=lambda s, l: format_summary_frame(s, l),
+        format_correlation_func=format_correlation,
+        colorize_func=colorize
     )
-    print(format_correlation(result.correlation, "zh"))
-    print(
-        colorize(
-            f"\n耗时: {result.runtime_seconds:.2f} 秒，覆盖 {len(result.summary)} 只 ETF",
-            "info",
-        )
-    )
-    if result.plot_paths:
-        print(colorize("生成的图表：", "heading"))
-        for path in result.plot_paths:
-            print(colorize(f" - {path}", "menu_hint"))
 
 
 def _interactive_backtest(last_state: Optional[dict]) -> None:
