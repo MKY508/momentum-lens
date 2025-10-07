@@ -1696,19 +1696,15 @@ def _correlation_to_markdown(frame: pd.DataFrame, lang: str) -> str:
     return "\n".join([header, divider, *body])
 
 
-def _ensure_plotly():
-    try:
-        import plotly.graph_objects as go  # type: ignore
-    except ImportError:
-        print(
-            colorize(
-                "缺少 plotly，无法生成交互式图表。请运行 `pip install plotly` 后重试。",
-                "warning",
-            )
-        )
-        return None
-    return go
+# Moved to business.charts.ensure_plotly
+from .business.charts import ensure_plotly as _biz_ensure_plotly
 
+def _ensure_plotly():
+    return _biz_ensure_plotly(colorize)
+
+
+# Moved to business.charts.generate_interactive_plot
+from .business.charts import generate_interactive_plot as _biz_generate_interactive_plot
 
 def _generate_interactive_plot(
     data: pd.DataFrame,
@@ -1721,150 +1717,21 @@ def _generate_interactive_plot(
     satellite_codes: Optional[set[str]] = None,
     default_visible_codes: Optional[set[str]] = None,
 ) -> Optional[Path]:
-    if data.empty:
-        print(colorize("数据为空，无法生成图表。", "warning"))
-        return None
-    go = _ensure_plotly()
-    if go is None:
-        print(colorize("plotly 未安装，可尝试执行 `pip install plotly==5.24.0 -i https://pypi.tuna.tsinghua.edu.cn/simple/`（注意命令不要换行）后重试。若依旧失败，可访问 https://pypi.org/project/plotly/#files 手动下载 whl 安装。", "menu_hint"))
-        return None
-    figure = go.Figure()
-    trace_codes = [str(col).upper() for col in data.columns]
-    default_visible = {code.upper() for code in default_visible_codes} if default_visible_codes else None
-
-    start_index: Optional[pd.Timestamp] = data.index.min() if not data.empty else None
-    target_start: Optional[pd.Timestamp] = None
-    if default_visible and data.index.size:
-        col_map = {str(col).upper(): col for col in data.columns}
-        first_indices: List[pd.Timestamp] = []
-        for code in default_visible:
-            column = col_map.get(code)
-            if column is None:
-                continue
-            first_valid = data[column].first_valid_index()
-            if first_valid is not None:
-                first_indices.append(first_valid)
-        if first_indices:
-            target_start = min(first_indices)
-    if target_start is None and not data.empty:
-        non_empty = data.dropna(how="all")
-        if not non_empty.empty:
-            target_start = non_empty.index.min()
-    if target_start is not None and start_index is not None:
-        threshold = pd.Timedelta(days=45)
-        if target_start - start_index <= threshold:
-            data = data[data.index >= target_start]
-    data = data.dropna(how="all")
-
-    trace_codes = [str(col).upper() for col in data.columns]
-    for column, code_upper in zip(data.columns, trace_codes):
-        visible_state: bool | str = True
-        if default_visible and code_upper not in default_visible:
-            visible_state = "legendonly"
-        legend_group = (
-            "CORE" if core_codes and code_upper in core_codes else (
-                "SAT" if satellite_codes and code_upper in satellite_codes else "OTHER"
-            )
-        )
-        figure.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data[column],
-                mode="lines",
-                name=_format_label(column),
-                legendgroup=legend_group,
-                line={"width": _PLOT_LINE_WIDTH},
-                visible=visible_state,
-            )
-        )
-    buttons: List[dict] = []
-    all_visible = [True] * len(trace_codes)
-    buttons.append(
-        {
-            "label": "全部",
-            "method": "update",
-            "args": [{"visible": all_visible}],
-        }
+    return _biz_generate_interactive_plot(
+        data,
+        title,
+        yaxis_title,
+        output_dir,
+        filename,
+        invert_y=invert_y,
+        core_codes=core_codes,
+        satellite_codes=satellite_codes,
+        default_visible_codes=default_visible_codes,
+        format_label_func=_format_label,
+        plot_template=_PLOT_TEMPLATE,
+        line_width=_PLOT_LINE_WIDTH,
+        colorize_func=colorize,
     )
-    if default_visible:
-        default_mask = [code in default_visible for code in trace_codes]
-        if any(default_mask) and any(v is False for v in default_mask):
-            buttons.append(
-                {
-                    "label": "前 6",
-                    "method": "update",
-                    "args": [{"visible": default_mask}],
-                }
-            )
-    if core_codes:
-        core_visible = [code in core_codes for code in trace_codes]
-        if any(core_visible):
-            buttons.append(
-                {
-                    "label": "仅核心",
-                    "method": "update",
-                    "args": [{"visible": core_visible}],
-                }
-            )
-    if satellite_codes:
-        sat_visible = [code in satellite_codes for code in trace_codes]
-        if any(sat_visible):
-            buttons.append(
-                {
-                    "label": "仅卫星",
-                    "method": "update",
-                    "args": [{"visible": sat_visible}],
-                }
-            )
-    other_visible = [
-        code not in (core_codes or set()) and code not in (satellite_codes or set())
-        for code in trace_codes
-    ]
-    if any(other_visible):
-        buttons.append(
-            {
-                "label": "仅其他",
-                "method": "update",
-                "args": [{"visible": other_visible}],
-            }
-        )
-    legend_height_padding = max(0, len(trace_codes) - 12) * 22
-    figure.update_layout(
-        title=title,
-        xaxis_title="日期",
-        yaxis_title=yaxis_title,
-        hovermode="x unified",
-        template=_PLOT_TEMPLATE,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            itemwidth=110,
-            groupclick="toggleitem",
-            traceorder="grouped",
-        ),
-        height=650 + legend_height_padding,
-        margin=dict(l=60, r=30, t=80, b=60 + min(legend_height_padding, 120)),
-        updatemenus=[
-            {
-                "type": "buttons",
-                "direction": "right",
-                "x": 0,
-                "y": 1.18,
-                "showactive": False,
-                "buttons": buttons,
-            }
-        ] if len(buttons) > 1 else None,
-    )
-    figure.update_layout(legend_title_text="图例 (点击可隐藏/显示单个 ETF)")
-    if invert_y:
-        figure.update_yaxes(autorange="reversed")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / filename
-    figure.write_html(str(path), include_plotlyjs="cdn")
-    return path
 
 
 def _maybe_open_browser(path: Path) -> None:
@@ -3665,129 +3532,21 @@ def _render_backtest_table(rows: List[dict]) -> str:
     return _fmt.render_table(columns, rows)
 
 
+# Moved to business.backtest (approx 120 lines)
+from .business.backtest import run_core_satellite_multi_backtest as _biz_run_core_satellite
+
 def _run_core_satellite_multi_backtest(last_state: Optional[dict] = None) -> None:
-    context = _obtain_backtest_context(last_state, allow_reuse=bool(last_state))
-    if not context:
-        return
-    result = context["result"]
-    config = context["config"]
-    close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()})
-    close_df = close_df.sort_index().dropna(how="all")
-    if close_df.empty:
-        print(colorize("无法回测：价格数据为空。", "warning"))
-        return
-    momentum_df = result.momentum_scores
-    if momentum_df.empty:
-        print(colorize("无法回测：动量得分为空。", "warning"))
-        return
-
-    core_codes, satellite_codes = _get_core_satellite_codes()
-    if not core_codes and not satellite_codes:
-        print(colorize("缺少核心/卫星券池定义，请先在券池预设中配置 core 与 satellite。", "warning"))
-        return
-    available_columns = set(close_df.columns)
-    core_available = [code for code in core_codes if code in available_columns]
-    satellite_available = [code for code in satellite_codes if code in available_columns]
-
-    if not core_available:
-        print(colorize("核心券池在当前分析结果中无可用标的，将仅使用卫星仓。", "warning"))
-    if not satellite_available:
-        print(colorize("卫星券池在当前分析结果中无可用标的，将仅使用核心仓。", "warning"))
-    if not core_available and not satellite_available:
-        print(colorize("核心与卫星券池均无可用标的，无法执行回测。", "danger"))
-        return
-
-    horizons = [
-        ("近10年", pd.DateOffset(years=10)),
-        ("近5年", pd.DateOffset(years=5)),
-        ("近2年", pd.DateOffset(years=2)),
-        ("近1年", pd.DateOffset(years=1)),
-        ("近6个月", pd.DateOffset(months=6)),
-        ("近3个月", pd.DateOffset(months=3)),
-    ]
-
-    end_date = close_df.index.max()
-    rows_for_table: List[dict] = []
-    last_holdings: dict[str, float] = {}
-    warnings: List[str] = []
-
-    for label, offset in horizons:
-        start_candidate = end_date - offset
-        mask = close_df.index >= start_candidate
-        close_slice = close_df.loc[mask]
-        if close_slice.empty:
-            continue
-        actual_start = close_slice.index[0]
-        momentum_slice = momentum_df.reindex(close_slice.index).ffill()
-        portfolio_returns, detail = _core_satellite_portfolio_returns(
-            close_slice,
-            momentum_slice,
-            core_available,
-            satellite_available,
-            core_allocation=0.6,
-            satellite_allocation=0.4,
-            top_n=2,
-        )
-        metrics = _calculate_performance_metrics(portfolio_returns)
-        if metrics["days"] == 0:
-            continue
-        note_text = ""
-        if metrics["days"] < 40:
-            warnings.append(
-                f"{label} 数据量仅 {metrics['days']} 个交易日，结果仅供参考。"
-            )
-            note_text = "样本偏少"
-        total_str = "-" if np.isnan(metrics["total_return"]) else f"{metrics['total_return']:.2%}"
-        annual_str = "-" if np.isnan(metrics["annualized"]) else f"{metrics['annualized']:.2%}"
-        vol_str = "-" if np.isnan(metrics["volatility"]) else f"{metrics['volatility']:.2%}"
-        maxdd_str = "-" if np.isnan(metrics["max_drawdown"]) else f"{metrics['max_drawdown']:.2%}"
-        sharpe_str = "-" if np.isnan(metrics["sharpe"]) else f"{metrics['sharpe']:.2f}"
-        row = {
-            "label": label,
-            "start": str(actual_start.date()),
-            "end": str(end_date.date()),
-            "days": str(metrics["days"]),
-            "total": total_str,
-            "annual": annual_str,
-            "vol": vol_str,
-            "maxdd": maxdd_str,
-            "sharpe": sharpe_str,
-            "note": note_text,
-        }
-        if not np.isnan(metrics["total_return"]) and metrics["total_return"] >= 0:
-            row["style_total"] = "value_positive"
-            row["style_annual"] = "value_positive"
-        elif not np.isnan(metrics["total_return"]):
-            row["style_total"] = "value_negative"
-            row["style_annual"] = "value_negative"
-        if not np.isnan(metrics["max_drawdown"]):
-            row["style_maxdd"] = "value_negative" if metrics["max_drawdown"] < 0 else "value_positive"
-        if not np.isnan(metrics["sharpe"]):
-            row["style_sharpe"] = "accent" if metrics["sharpe"] > 0 else "warning"
-        rows_for_table.append(row)
-        last_holdings = detail.get("last_weights", {})
-
-    print(colorize("\n=== 核心-卫星多区间回测 ===", "heading"))
-    print(colorize("策略假设：核心仓 60% 等权持有核心券池全部标的；卫星仓 40% 择优持有卫星券池中动量得分排名前二，每月调仓。", "menu_hint"))
-    print(colorize(f"核心仓标的数: {len(core_available)} | 卫星仓候选: {len(satellite_available)}", "menu_text"))
-
-    print(_render_backtest_table(rows_for_table))
-
-    if last_holdings:
-        sorted_holdings = sorted(last_holdings.items(), key=lambda item: item[1], reverse=True)
-        holding_lines = []
-        for code, weight in sorted_holdings:
-            label = _format_label(code)
-            holding_lines.append(f"{label}: {weight:.1%}")
-        print(colorize("\n最新权重（所有区间共用）:", "heading"))
-        print(colorize("; ".join(holding_lines), "menu_text"))
-
-    if warnings:
-        print("")
-        for message in warnings:
-            print(colorize(f"提示: {message}", "warning"))
-    _wait_for_ack()
-
+    return _biz_run_core_satellite(
+        obtain_context_func=_obtain_backtest_context,
+        get_core_satellite_codes_func=_get_core_satellite_codes,
+        core_satellite_returns_func=_core_satellite_portfolio_returns,
+        calc_metrics_func=_calculate_performance_metrics,
+        format_label_func=_format_label,
+        colorize_func=colorize,
+        render_table_func=_render_backtest_table,
+        wait_for_ack_func=_wait_for_ack,
+        last_state=last_state,
+    )
 
 
 def _make_backtest_preset(

@@ -74,19 +74,140 @@ def run_simple_backtest(result, preset: AnalysisPreset, top_n: int = 2) -> None:
         print(colorize("最新持仓结构:", "heading"))
         print(colorize("; ".join(holding_lines), "menu_text"))
 
-"""
-回测业务逻辑模块
 
-包含：
-- 核心-卫星组合的按月调仓收益序列计算
-- 常用绩效指标计算
-"""
-from __future__ import annotations
+def run_core_satellite_multi_backtest(
+    obtain_context_func,
+    get_core_satellite_codes_func,
+    core_satellite_returns_func,
+    calc_metrics_func,
+    format_label_func,
+    colorize_func,
+    render_table_func,
+    wait_for_ack_func,
+    last_state: dict | None = None,
+) -> None:
+    """Run core-satellite multi-horizon backtest (core equal-weight + satellite TopN) via injected callbacks."""
+    context = obtain_context_func(last_state, allow_reuse=bool(last_state))
+    if not context:
+        return
+    result = context["result"]
+    close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()})
+    close_df = close_df.sort_index().dropna(how="all")
+    if close_df.empty:
+        print(colorize_func("无法回测：价格数据为空。", "warning"))
+        return
+    momentum_df = result.momentum_scores
+    if momentum_df.empty:
+        print(colorize_func("无法回测：动量得分为空。", "warning"))
+        return
 
-from typing import Sequence, Tuple, Dict, List
+    core_codes, satellite_codes = get_core_satellite_codes_func()
+    if not core_codes and not satellite_codes:
+        print(colorize_func("缺少核心/卫星券池定义，请先在券池预设中配置 core 与 satellite。", "warning"))
+        return
+    available_columns = set(close_df.columns)
+    core_available = [code for code in core_codes if code in available_columns]
+    satellite_available = [code for code in satellite_codes if code in available_columns]
 
-import numpy as np
-import pandas as pd
+    if not core_available:
+        print(colorize_func("核心券池在当前分析结果中无可用标的，将仅使用卫星仓。", "warning"))
+    if not satellite_available:
+        print(colorize_func("卫星券池在当前分析结果中无可用标的，将仅使用核心仓。", "warning"))
+    if not core_available and not satellite_available:
+        print(colorize_func("核心与卫星券池均无可用标的，无法执行回测。", "danger"))
+        return
+
+    horizons = [
+        ("近10年", pd.DateOffset(years=10)),
+        ("近5年", pd.DateOffset(years=5)),
+        ("近2年", pd.DateOffset(years=2)),
+        ("近1年", pd.DateOffset(years=1)),
+        ("近6个月", pd.DateOffset(months=6)),
+        ("近3个月", pd.DateOffset(months=3)),
+    ]
+
+    end_date = close_df.index.max()
+    rows_for_table: list[dict] = []
+    last_holdings: dict[str, float] = {}
+    warnings: list[str] = []
+
+    for label, offset in horizons:
+        start_candidate = end_date - offset
+        mask = close_df.index >= start_candidate
+        close_slice = close_df.loc[mask]
+        if close_slice.empty:
+            continue
+        actual_start = close_slice.index[0]
+        momentum_slice = momentum_df.reindex(close_slice.index).ffill()
+        portfolio_returns, detail = core_satellite_returns_func(
+            close_slice,
+            momentum_slice,
+            core_available,
+            satellite_available,
+            core_allocation=0.6,
+            satellite_allocation=0.4,
+            top_n=2,
+        )
+        metrics = calc_metrics_func(portfolio_returns)
+        if metrics["days"] == 0:
+            continue
+        note_text = ""
+        if metrics["days"] < 40:
+            warnings.append(f"{label} 数据量仅 {metrics['days']} 个交易日，结果仅供参考。")
+            note_text = "样本偏少"
+        def _fmt_pct(x: float, digits=2):
+            import numpy as _np
+            return "-" if _np.isnan(x) else f"{x:.{digits}%}"
+        def _fmt_num(x):
+            import numpy as _np
+            return "-" if _np.isnan(x) else f"{x:.2f}"
+        row = {
+            "label": label,
+            "start": str(actual_start.date()),
+            "end": str(end_date.date()),
+            "days": str(metrics["days"]),
+            "total": _fmt_pct(metrics["total_return"]),
+            "annual": _fmt_pct(metrics["annualized"]),
+            "vol": _fmt_pct(metrics["volatility"]),
+            "maxdd": _fmt_pct(metrics["max_drawdown"]),
+            "sharpe": _fmt_num(metrics["sharpe"]),
+            "note": note_text,
+        }
+        import numpy as _np
+        if not _np.isnan(metrics["total_return"]):
+            if metrics["total_return"] >= 0:
+                row["style_total"] = "value_positive"
+                row["style_annual"] = "value_positive"
+            else:
+                row["style_total"] = "value_negative"
+                row["style_annual"] = "value_negative"
+        if not _np.isnan(metrics["max_drawdown"]):
+            row["style_maxdd"] = "value_negative" if metrics["max_drawdown"] < 0 else "value_positive"
+        if not _np.isnan(metrics["sharpe"]):
+            row["style_sharpe"] = "accent" if metrics["sharpe"] > 0 else "warning"
+        rows_for_table.append(row)
+        last_holdings = detail.get("last_weights", {})
+
+    print(colorize_func("\n=== 核心-卫星多区间回测 ===", "heading"))
+    print(colorize_func("策略假设：核心仓 60% 等权持有核心券池全部标的；卫星仓 40% 择优持有卫星券池中动量得分排名前二，每月调仓。", "menu_hint"))
+    print(colorize_func(f"核心仓标的数: {len(core_available)} | 卫星仓候选: {len(satellite_available)}", "menu_text"))
+
+    print(render_table_func(rows_for_table))
+
+    if last_holdings:
+        sorted_holdings = sorted(last_holdings.items(), key=lambda item: item[1], reverse=True)
+        holding_lines = []
+        for code, weight in sorted_holdings:
+            label = format_label_func(code)
+            holding_lines.append(f"{label}: {weight:.1%}")
+        print(colorize_func("\n最新权重（所有区间共用）:", "heading"))
+        print(colorize_func("; ".join(holding_lines), "menu_text"))
+
+    if warnings:
+        print("")
+        for message in warnings:
+            print(colorize_func(f"提示: {message}", "warning"))
+    wait_for_ack_func()
 
 
 def core_satellite_portfolio_returns(
