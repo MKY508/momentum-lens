@@ -2735,123 +2735,47 @@ def _configure_cli_theme() -> None:
             print(colorize(f"已切换到 {info.get('label', selected)} 主题。", "value_positive"))
 
 
+# Moved to business.config (72 lines)
+from .business import configure_plot_style_interactive as _biz_config_plot_style
+
 def _configure_plot_style() -> None:
     global _PLOT_TEMPLATE, _PLOT_LINE_WIDTH
-    templates = [
-        "plotly_white",
-        "plotly_dark",
-        "presentation",
-        "ggplot2",
-        "seaborn",
-        "simple_white",
-    ]
-    print(colorize("当前图表样式：", "heading"))
-    print(colorize(f"主题: {_PLOT_TEMPLATE}", "menu_text"))
-    print(colorize(f"曲线宽度: {_PLOT_LINE_WIDTH}", "menu_text"))
-    current_theme = _CLI_THEME_INFO.get(_STYLE_THEME, {"label": _STYLE_THEME})
-    print(
-        colorize(
-            f"终端主题: {current_theme.get('label', _STYLE_THEME)} ({_STYLE_THEME})",
-            "menu_hint",
-        )
-    )
-    while True:
-        options: List[Dict[str, Any]] = []
-        default_key = _PLOT_TEMPLATE
-        for idx, template in enumerate(templates, start=1):
-            marker = "✓" if template == _PLOT_TEMPLATE else " "
-            options.append(
-                {
-                    "key": template,
-                    "display": str(idx),
-                    "label": f"[{marker}] {template}",
-                }
-            )
-        options.append({"key": "0", "label": "返回上级菜单"})
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 图表样式设置 ─" + "─" * 18,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key=default_key,
-        )
-        if choice in {"0", "__escape__"}:
-            break
-        if choice in templates:
-            _PLOT_TEMPLATE = choice
-            _update_setting(_SETTINGS,"plot_template", _PLOT_TEMPLATE)
-            print(colorize(f"已切换到 {_PLOT_TEMPLATE} 主题。", "value_positive"))
-            break
-        if choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(templates):
-                _PLOT_TEMPLATE = templates[idx - 1]
-                _update_setting(_SETTINGS,"plot_template", _PLOT_TEMPLATE)
-                print(colorize(f"已切换到 {_PLOT_TEMPLATE} 主题。", "value_positive"))
-                break
-        print(colorize("输入无效，请重新选择。", "warning"))
-    while True:
-        raw = input(colorize("设置曲线宽度（示例 1.5，直接回车保持当前值）: ", "prompt")).strip()
-        if not raw:
-            break
-        try:
-            width = float(raw)
-        except ValueError:
-            print(colorize("请输入数值，例如 1.5。", "warning"))
-            continue
-        if width <= 0:
-            print(colorize("宽度需为正数。", "warning"))
-            continue
-        _PLOT_LINE_WIDTH = width
-        _update_setting(_SETTINGS,"plot_line_width", _PLOT_LINE_WIDTH)
-        print(colorize(f"曲线宽度已更新为 {_PLOT_LINE_WIDTH}。", "value_positive"))
-        break
 
+    def set_template(template: str) -> None:
+        global _PLOT_TEMPLATE
+        _PLOT_TEMPLATE = template
+        _update_setting(_SETTINGS, "plot_template", _PLOT_TEMPLATE)
+
+    def set_line_width(width: float) -> None:
+        global _PLOT_LINE_WIDTH
+        _PLOT_LINE_WIDTH = width
+        _update_setting(_SETTINGS, "plot_line_width", _PLOT_LINE_WIDTH)
+
+    _biz_config_plot_style(
+        current_template=_PLOT_TEMPLATE,
+        current_line_width=_PLOT_LINE_WIDTH,
+        current_cli_theme=_STYLE_THEME,
+        cli_theme_info=_CLI_THEME_INFO,
+        set_template_func=set_template,
+        set_line_width_func=set_line_width,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
+
+
+# Moved to business.config (44 lines)
+from .business import configure_correlation_threshold_interactive as _biz_config_corr_threshold
 
 def _configure_correlation_threshold() -> None:
-    current = _CORRELATION_ALERT_THRESHOLD
-    presets = {
-        "1": 0.6,
-        "2": 0.8,
-        "3": 0.85,
-    }
-    options = [
-        {"key": "1", "label": "设为 0.60"},
-        {"key": "2", "label": "设为 0.80"},
-        {"key": "3", "label": "设为 0.85"},
-        {"key": "4", "label": "自定义输入"},
-        {"key": "0", "label": "返回上级菜单"},
-    ]
-    header_lines = [
-        "",
-        colorize(f"当前阈值: {current:.2f}", "menu_text"),
-    ]
-    choice = _prompt_menu_choice(
-        options,
-        title="┌─ 相关矩阵阈值 ─" + "─" * 18,
-        header_lines=header_lines,
-        hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-        default_key="0",
-    ).strip()
-    if not choice or choice in {"0", "__escape__"}:
-        return
-    if choice in presets:
-        new_value = presets[choice]
-    elif choice == "4":
-        raw = input(colorize("请输入 0-1 之间的小数，例如 0.75: ", "prompt")).strip()
-        try:
-            new_value = float(raw)
-        except ValueError:
-            print(colorize("输入无效，阈值保持不变。", "warning"))
-            return
-    else:
-        print(colorize("输入无效，阈值保持不变。", "warning"))
-        return
-    validated = _validate_corr_threshold(new_value)
-    if validated != new_value:
-        print(colorize("输入超出范围，已自动调整到有效区间。", "warning"))
-    updated = _set_correlation_alert_threshold(validated)
-    print(colorize(f"相关矩阵预警阈值已更新为 {updated:.2f}。", "value_positive"))
+    _biz_config_corr_threshold(
+        current_threshold=_CORRELATION_ALERT_THRESHOLD,
+        validate_func=_validate_corr_threshold,
+        set_threshold_func=_set_correlation_alert_threshold,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
 
 
 def _configure_signal_thresholds() -> None:

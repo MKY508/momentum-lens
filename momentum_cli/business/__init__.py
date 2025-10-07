@@ -43,6 +43,10 @@ from .alerts import (
     detect_rank_drop_alerts,
     collect_alerts,
 )
+from .config import (
+    configure_correlation_threshold_interactive,
+    configure_plot_style_interactive,
+)
 
 __all__ = [
     # Reports
@@ -80,4 +84,7 @@ __all__ = [
     "detect_high_correlation_pairs",
     "detect_rank_drop_alerts",
     "collect_alerts",
+    # Config
+    "configure_correlation_threshold_interactive",
+    "configure_plot_style_interactive",
 ]
