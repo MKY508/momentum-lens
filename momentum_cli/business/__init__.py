@@ -9,6 +9,8 @@ from .reports import (
     format_summary_table,
     generate_quick_summary,
     display_analysis_summary,
+    build_strategy_gate_entries,
+    build_result_payload,
 )
 from .analysis_presets import (
     print_analysis_presets,
@@ -26,6 +28,7 @@ from .templates import (
     template_to_params,
     print_template_details,
     print_template_list,
+    build_template_payload,
     TEMPLATE_STORE_PATH,
 )
 from .history import (
@@ -48,6 +51,8 @@ __all__ = [
     "format_summary_table",
     "generate_quick_summary",
     "display_analysis_summary",
+    "build_strategy_gate_entries",
+    "build_result_payload",
     # Analysis Presets
     "print_analysis_presets",
     "print_analysis_preset_details",
@@ -63,6 +68,7 @@ __all__ = [
     "template_to_params",
     "print_template_details",
     "print_template_list",
+    "build_template_payload",
     "TEMPLATE_STORE_PATH",
     # History
     "record_history",

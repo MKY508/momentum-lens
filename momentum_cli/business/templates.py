@@ -329,3 +329,48 @@ def print_template_list(templates: dict) -> None:
             print(colorize(f"  • {name}: {desc}", "menu_text"))
         else:
             print(colorize(f"  • {name}", "menu_text"))
+
+
+
+
+def build_template_payload(config, momentum_config, preset_keys, analysis_preset=None, export_csv=False) -> dict:
+    """构建模板载荷
+
+    Args:
+        config: 分析配置
+        momentum_config: 动量配置
+        preset_keys: 预设键列表
+        analysis_preset: 分析预设
+        export_csv: 是否导出CSV
+
+    Returns:
+        模板载荷字典
+    """
+    payload = {
+        "etfs": list(config.etfs),
+        "exclude": list(config.exclude),
+        "presets": list(preset_keys),
+        "start": config.start_date,
+        "end": config.end_date,
+        "momentum_windows": list(momentum_config.windows),
+        "momentum_weights": list(momentum_config.weights)
+        if momentum_config.weights is not None
+        else None,
+        "momentum_skip_windows": list(momentum_config.skip_windows)
+        if momentum_config.skip_windows is not None
+        else None,
+        "corr_window": config.corr_window,
+        "chop_window": config.chop_window,
+        "trend_window": config.trend_window,
+        "rank_lookback": config.rank_change_lookback,
+        "make_plots": False,
+        "output_dir": str(config.output_dir),
+        "export_csv": False,
+        "stability_method": config.stability_method,
+        "stability_window": config.stability_window,
+        "stability_top_n": config.stability_top_n,
+        "stability_weight": config.stability_weight,
+    }
+    if analysis_preset:
+        payload["analysis_preset"] = analysis_preset.key
+    return payload

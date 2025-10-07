@@ -696,275 +696,17 @@ def _collect_alerts(result) -> dict:
 from .utils import chop_state_label as _chop_state_label
 
 
+# Moved to business.reports (268 lines) - old implementation removed
+from .business import build_strategy_gate_entries as _business_build_strategy_gate_entries
+
 def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
-    entries: List[tuple[str, str]] = []
-    market = getattr(result, "market_snapshot", None)
-    is_zh = lang == "zh"
+    return _business_build_strategy_gate_entries(result, lang, format_label_func=_format_label)
 
-    summary_sorted = pd.DataFrame()
-    if isinstance(getattr(result, "summary", None), pd.DataFrame) and not result.summary.empty:
-        summary_sorted = result.summary.sort_values("momentum_score", ascending=False)
-    top_label: Optional[str] = None
-    top_score: Optional[float] = None
-    top_adx: Optional[float] = None
-    top_adx_state: Optional[str] = None
-    if not summary_sorted.empty:
-        top_row = summary_sorted.iloc[0]
-        top_code = top_row.get("etf")
-        if isinstance(top_code, str):
-            top_label = _format_label(top_code)
-        try:
-            top_score = float(top_row.get("momentum_score"))
-        except (TypeError, ValueError):
-            top_score = None
-        try:
-            top_adx = float(top_row.get("adx"))
-        except (TypeError, ValueError):
-            top_adx = None
-        top_adx_state = top_row.get("adx_state")
+# Old implementation removed (268 lines)
 
-    def _to_float(value) -> Optional[float]:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return None
-        return numeric if np.isfinite(numeric) else None
-
-    def fmt_price(value) -> str:
-        numeric = _to_float(value)
-        return f"{numeric:.2f}" if numeric is not None else "--"
-
-    def fmt_pct(value) -> str:
-        numeric = _to_float(value)
-        return f"{numeric:.2f}%" if numeric is not None else "--"
-
-    def fmt_date(value) -> str:
-        if hasattr(value, "isoformat"):
-            return value.isoformat()
-        if value:
-            return str(value)
-        return "最新" if is_zh else "latest"
-
-    chop_val = _to_float(market.get("chop14") if market else None)
-    chop_low = _to_float(market.get("chop_p30") if market else None)
-    chop_high = _to_float(market.get("chop_p70") if market else None)
-    prev_chop = _to_float(market.get("chop14_prev") if market else None)
-    state_key = market.get("chop14_state") if market else None
-    if state_key is None:
-        if chop_val is not None and chop_low is not None and chop_high is not None:
-            if chop_val <= chop_low:
-                state_key = "trend"
-            elif chop_val >= chop_high:
-                state_key = "range"
-            else:
-                state_key = "neutral"
-        elif chop_val is not None:
-            if chop_val <= 38.2:
-                state_key = "trend"
-            elif prev_chop is not None and prev_chop > 55 and chop_val <= 55:
-                state_key = "trend"
-            elif chop_val >= 61.8:
-                state_key = "range"
-            elif prev_chop is not None and 55 <= chop_val < 61.8:
-                state_key = "range"
-            else:
-                state_key = "neutral"
-    state_label = _chop_state_label(state_key, "zh" if is_zh else "en")
-    state_tag = ""
-    if state_label:
-        state_tag = f"（{state_label}）" if is_zh else f" ({state_label})"
-    chop_line: Optional[str] = None
-    chop_style = "menu_hint"
-    if chop_val is not None:
-        prefix = f"{state_label} · " if state_label else ""
-
-        def adx_comment_trend() -> str:
-            if top_adx is None:
-                return ""
-            if is_zh:
-                if top_adx_state == "strong":
-                    return f"，ADX {top_adx:.1f} 显示趋势强度充足。"
-                if top_adx_state == "setup":
-                    return f"，ADX {top_adx:.1f} 正在爬升，可留意放量确认。"
-                return f"，但 ADX 仅 {top_adx:.1f}，谨防假突破。"
-            else:
-                if top_adx_state == "strong":
-                    return f", ADX {top_adx:.1f} confirms strong trend."
-                if top_adx_state == "setup":
-                    return f", ADX {top_adx:.1f} building; watch for confirmation."
-                return f", yet ADX {top_adx:.1f} remains weak; beware of whipsaw."
-
-        def adx_comment_range() -> str:
-            if top_adx is None:
-                return ""
-            if is_zh:
-                if top_adx_state == "strong":
-                    return f"（ADX {top_adx:.1f} 偏高，后续如回落可关注切换策略）"
-                if top_adx_state == "setup":
-                    return f"（ADX {top_adx:.1f} 尚未站稳，耐心等待方向明确）"
-                return f"（ADX {top_adx:.1f} 偏弱，更适合均值策略或等待突破）"
-            else:
-                if top_adx_state == "strong":
-                    return f" (ADX {top_adx:.1f} elevated; watch for fading momentum)"
-                if top_adx_state == "setup":
-                    return f" (ADX {top_adx:.1f} still forming; wait for clarity)"
-                return f" (ADX {top_adx:.1f} weak; favor mean reversion)"
-
-        if state_key == "trend" and chop_low is not None:
-            if is_zh:
-                momentum_hint = (
-                    f"，动量龙头 {top_label} 得分 {top_score:.2f}，可保留趋势腿"
-                    if top_label and top_score is not None
-                    else "，结合动量信号维持趋势腿"
-                )
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} 低于自身 30% 分位 {chop_low:.1f} → 趋势环境{momentum_hint}{adx_comment_trend()}"
-            else:
-                momentum_hint = (
-                    f", momentum leader {top_label} score {top_score:.2f}; keep trend legs aligned"
-                    if top_label and top_score is not None
-                    else ", align with momentum legs"
-                )
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} < own 30th percentile {chop_low:.1f} → trend regime{momentum_hint}{adx_comment_trend()}"
-        elif state_key == "range" and chop_high is not None:
-            chop_style = "warning"
-            if is_zh:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} 高于自身 70% 分位 {chop_high:.1f} → 盘整环境，建议降低卫星仓或转向均值策略{adx_comment_range()}"
-            else:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} > own 70th percentile {chop_high:.1f} → range-bound; trim satellites or switch to mean reversion{adx_comment_range()}"
-        elif state_key == "neutral" and chop_low is not None and chop_high is not None:
-            if is_zh:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} 介于 30% ({chop_low:.1f}) 与 70% ({chop_high:.1f}) 分位 → 中性环境，留意量价突破"
-            else:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} between 30th ({chop_low:.1f}) and 70th ({chop_high:.1f}) percentiles → neutral regime; watch for breakouts"
-        else:
-            if chop_val <= 38.2:
-                chop_line = (
-                    f"{prefix}CHOP(14) {chop_val:.1f} ≤ 38.2 → 趋势环境，可结合动量维持趋势腿。"
-                    if is_zh
-                    else f"{prefix}CHOP(14) {chop_val:.1f} ≤ 38.2 → trend regime; align with momentum legs."
-                )
-            elif prev_chop is not None and prev_chop > 55 and chop_val <= 55:
-                chop_line = (
-                    f"{prefix}CHOP(14) {chop_val:.1f} 自上而下跌破 55 → 趋势启动，关注放量确认。"
-                    if is_zh
-                    else f"{prefix}CHOP(14) {chop_val:.1f} drops below 55 → trend breakout; watch for volume confirmation."
-                )
-        close_val = market.get("close")
-        ma200_val = market.get("ma200")
-        trade_date = market.get("trade_date")
-        above_ma = bool(market.get("above_ma200"))
-        date_text = fmt_date(trade_date)
-        orientation_text_zh = "在年线上方" if above_ma else "在年线下方"
-        orientation_text_en = "above MA200" if above_ma else "below MA200"
-        legs_text_zh = "持 2 条腿 × 各 20%" if above_ma else "仅持 1 条腿 × 15%"
-        legs_text_en = "run 2 legs at 20% each" if above_ma else "run 1 leg at 15%"
-        trend_line = (
-            f"趋势闸{state_tag}：沪深300 {orientation_text_zh}（{date_text} 收盘 {fmt_price(close_val)} / MA200 {fmt_price(ma200_val)}），建议{legs_text_zh}。"
-            if is_zh
-            else f"Trend Gate{state_tag}: CSI 300 is {orientation_text_en} (close {fmt_price(close_val)} / MA200 {fmt_price(ma200_val)} on {date_text}); recommend {legs_text_en}."
-        )
-        entries.append((trend_line, "title"))
-
-        atr_pct_val = market.get("atr20_pct")
-        atr_text = fmt_pct(atr_pct_val)
-        high_vol = False
-        atr_numeric = _to_float(atr_pct_val)
-        if atr_numeric is not None:
-            high_vol = atr_numeric > 4.0
-        if above_ma and not high_vol:
-            risk_stop = "-10%"
-            risk_style = "menu_hint"
-            risk_context_zh = "强趋势"
-            risk_context_en = "strong trend"
-        else:
-            risk_stop = "-15%"
-            risk_style = "warning"
-            risk_context_zh = "震荡/高波动"
-            risk_context_en = "range / high vol"
-        risk_line = (
-            f"风控：单腿基线止损 -12%。沪深300 {orientation_text_zh}、ATR20/价 {atr_text} → {risk_context_zh}，建议止损 {risk_stop}；跌破年线时卫星仓减半。"
-            if is_zh
-            else f"Risk: Base stop -12%. CSI 300 is {orientation_text_en}, ATR20/Price {atr_text} → {risk_context_en}; use {risk_stop} stop and halve satellites if the index breaks MA200."
-        )
-        entries.append((risk_line, risk_style))
-    else:
-        trend_fallback = (
-            "趋势闸：未获取沪深300年线数据，默认仅保留 1 条腿 × 15%。"
-            if is_zh
-            else "Trend Gate: CSI 300 MA200 data unavailable; default to one 15% leg."
-        )
-        risk_fallback = (
-            "风控：缺少指数波动数据，沿用基线止损 -12%，如大盘走弱仍需减半。"
-            if is_zh
-            else "Risk: Missing benchmark volatility data; keep -12% stop and halve satellites if the index weakens."
-        )
-        entries.append((trend_fallback, "warning"))
-        entries.append((risk_fallback, "warning"))
-
-    if chop_line:
-        entries.append((chop_line, chop_style))
-
-    if summary_sorted.empty and not result.summary.empty:
-        summary_sorted = result.summary.sort_values("momentum_score", ascending=False)
-    top_candidates: List[tuple[str, str]] = []
-    for _, row in summary_sorted.head(3).iterrows():
-        code = row.get("etf")
-        if isinstance(code, str) and code:
-            top_candidates.append((code, _format_label(code)))
-    if len(top_candidates) >= 2:
-        (code_a, label_a), (code_b, label_b) = top_candidates[:2]
-        corr_value: float | None = None
-        try:
-            corr_raw = result.correlation.loc[code_a, code_b]
-        except Exception:  # noqa: BLE001
-            corr_raw = None
-        if corr_raw is not None and pd.notna(corr_raw):
-            try:
-                corr_numeric = float(corr_raw)
-                if np.isfinite(corr_numeric):
-                    corr_value = corr_numeric
-            except (TypeError, ValueError):
-                corr_value = None
-        threshold = 0.8
-        if corr_value is None:
-            text = (
-                f"相关性闸：{label_a} ↔ {label_b} 缺少相关系数数据，需手动核对。"
-                if is_zh
-                else f"Correlation Gate: Missing correlation for {label_a} ↔ {label_b}; please verify manually."
-            )
-            entries.append((text, "warning"))
-        elif corr_value > threshold:
-            corr_text = f"ρ={corr_value:.2f}"
-            if len(top_candidates) >= 3:
-                replacement_label = top_candidates[2][1]
-                text = (
-                    f"相关性闸：{label_a} ↔ {label_b} {corr_text} > 0.80，优先改用 {replacement_label} 作为第二腿。"
-                    if is_zh
-                    else f"Correlation Gate: {label_a} ↔ {label_b} {corr_text} > 0.80; switch second leg to {replacement_label}."
-                )
-            else:
-                text = (
-                    f"相关性闸：{label_a} ↔ {label_b} {corr_text} > 0.80，暂无备选，建议仅保留一条腿。"
-                    if is_zh
-                    else f"Correlation Gate: {label_a} ↔ {label_b} {corr_text} > 0.80; no alternate, consider a single leg."
-                )
-            entries.append((text, "warning"))
-        else:
-            text = (
-                f"相关性闸：{label_a} ↔ {label_b} ρ={corr_value:.2f} ≤ 0.80，可同时持有。"
-                if is_zh
-                else f"Correlation Gate: {label_a} ↔ {label_b} ρ={corr_value:.2f} ≤ 0.80; dual-leg allocation allowed."
-            )
-            entries.append((text, "menu_hint"))
-    elif top_candidates:
-        text = (
-            f"相关性闸：当前仅有 {top_candidates[0][1]} 入选，维持单腿持仓。"
-            if is_zh
-            else f"Correlation Gate: Only {top_candidates[0][1]} qualifies; keep a single leg."
-        )
-        entries.append((text, "menu_hint"))
-
-    return entries
+# New wrapper function
+def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
+    return _business_build_strategy_gate_entries(result, lang, format_label_func=_format_label)
 
 
 # 显示和解析相关函数已移至 utils 模块
@@ -1227,6 +969,9 @@ def _print_template_list() -> None:
     _business_print_template_list(store)
 
 
+# Moved to business.templates
+from .business import build_template_payload as _business_build_template_payload
+
 def _build_template_payload(
     config: AnalysisConfig,
     momentum_config: MomentumConfig,
@@ -1234,34 +979,7 @@ def _build_template_payload(
     analysis_preset: AnalysisPreset | None,
     export_csv: bool = False,
 ) -> dict:
-    payload = {
-        "etfs": list(config.etfs),
-        "exclude": list(config.exclude),
-        "presets": list(preset_keys),
-        "start": config.start_date,
-        "end": config.end_date,
-        "momentum_windows": list(momentum_config.windows),
-        "momentum_weights": list(momentum_config.weights)
-        if momentum_config.weights is not None
-        else None,
-        "momentum_skip_windows": list(momentum_config.skip_windows)
-        if momentum_config.skip_windows is not None
-        else None,
-        "corr_window": config.corr_window,
-        "chop_window": config.chop_window,
-        "trend_window": config.trend_window,
-        "rank_lookback": config.rank_change_lookback,
-        "make_plots": False,
-        "output_dir": str(config.output_dir),
-        "export_csv": False,
-        "stability_method": config.stability_method,
-        "stability_window": config.stability_window,
-        "stability_top_n": config.stability_top_n,
-        "stability_weight": config.stability_weight,
-    }
-    if analysis_preset:
-        payload["analysis_preset"] = analysis_preset.key
-    return payload
+    return _business_build_template_payload(config, momentum_config, preset_keys, analysis_preset, export_csv)
 
 
 def _template_to_params(template: dict) -> dict:
@@ -2159,6 +1877,9 @@ def _maybe_open_browser(path: Path) -> None:
             print(colorize(f"无法打开浏览器: {exc}", "danger"))
 
 
+# Moved to business.reports (114 lines)
+from .business import build_result_payload as _business_build_result_payload
+
 def _build_result_payload(
     result,
     config: AnalysisConfig,
@@ -2166,114 +1887,18 @@ def _build_result_payload(
     preset: AnalysisPreset | None,
     lang: str,
 ) -> dict:
-    summary_df = result.summary.copy()
-    if "trade_date" in summary_df.columns:
-        summary_df["trade_date"] = summary_df["trade_date"].apply(
-            lambda value: value.isoformat() if hasattr(value, "isoformat") else str(value)
-        )
-    summary_json = json.loads(
-        summary_df.to_json(orient="records", force_ascii=False)
+    return _business_build_result_payload(
+        result,
+        config,
+        momentum_config,
+        preset,
+        lang,
+        collect_alerts_func=_collect_alerts,
+        build_gate_entries_func=_build_strategy_gate_entries,
+        max_series_export=MAX_SERIES_EXPORT,
     )
 
-    correlation_df = result.correlation.round(4)
-    correlation_json = json.loads(correlation_df.to_json(force_ascii=False))
-
-    momentum_series = result.momentum_scores.tail(MAX_SERIES_EXPORT).reset_index()
-    if not momentum_series.empty:
-        momentum_series.rename(columns={momentum_series.columns[0]: "date"}, inplace=True)
-        momentum_series["date"] = momentum_series["date"].astype(str)
-    else:
-        momentum_series["date"] = []
-    momentum_json = json.loads(
-        momentum_series.to_json(orient="records", force_ascii=False)
-    )
-
-    rank_series = result.rank_history.tail(MAX_SERIES_EXPORT).reset_index()
-    if not rank_series.empty:
-        rank_series.rename(columns={rank_series.columns[0]: "date"}, inplace=True)
-        rank_series["date"] = rank_series["date"].astype(str)
-    else:
-        rank_series["date"] = []
-    rank_json = json.loads(
-        rank_series.to_json(orient="records", force_ascii=False)
-    )
-
-    stability_series = result.stability_scores.tail(MAX_SERIES_EXPORT).reset_index()
-    if not stability_series.empty:
-        stability_series.rename(columns={stability_series.columns[0]: "date"}, inplace=True)
-        stability_series["date"] = stability_series["date"].astype(str)
-    else:
-        stability_series["date"] = []
-    stability_json = json.loads(
-        stability_series.to_json(orient="records", force_ascii=False)
-    )
-
-    meta: dict = {
-        "start": config.start_date,
-        "end": config.end_date,
-        "etfs": list(config.etfs),
-        "exclude": list(config.exclude),
-        "etf_count": len(result.summary),
-        "momentum_windows": list(momentum_config.windows),
-        "momentum_weights": list(momentum_config.weights)
-        if momentum_config.weights is not None
-        else None,
-        "corr_window": config.corr_window,
-        "chop_window": config.chop_window,
-        "trend_window": config.trend_window,
-        "rank_lookback": config.rank_change_lookback,
-        "bundle_path": str(config.bundle_path) if config.bundle_path else None,
-        "output_dir": str(config.output_dir),
-        "make_plots": config.make_plots,
-        "runtime_seconds": result.runtime_seconds,
-        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
-        "lang": lang,
-        "plot_paths": [str(path) for path in result.plot_paths],
-        "momentum_percentile_lookback": config.momentum_percentile_lookback,
-        "momentum_significance_threshold": config.momentum_significance_threshold,
-        "trend_consistency_adx_threshold": config.trend_consistency_adx_threshold,
-        "trend_consistency_chop_threshold": config.trend_consistency_chop_threshold,
-        "trend_consistency_fast_span": config.trend_consistency_fast_span,
-        "trend_consistency_slow_span": config.trend_consistency_slow_span,
-        "stability_method": config.stability_method,
-        "stability_window": config.stability_window,
-        "stability_top_n": config.stability_top_n,
-        "stability_weight": config.stability_weight,
-    }
-    if preset:
-        meta["analysis_preset"] = asdict(preset)
-    market_snapshot = getattr(result, "market_snapshot", None)
-    if market_snapshot:
-        snapshot = dict(market_snapshot)
-        trade_date = snapshot.get("trade_date")
-        if hasattr(trade_date, "isoformat"):
-            snapshot["trade_date"] = trade_date.isoformat()
-        meta["market_snapshot"] = snapshot
-    gate_entries = _build_strategy_gate_entries(result, lang)
-    if gate_entries:
-        meta["strategy_gates"] = [
-            {"text": text, "style": style} for text, style in gate_entries
-        ]
-    momentum_payload = asdict(momentum_config)
-    momentum_payload["windows"] = list(momentum_payload["windows"])
-    if momentum_payload.get("weights") is not None:
-        momentum_payload["weights"] = list(momentum_payload["weights"])
-    meta["momentum_config"] = momentum_payload
-
-    alerts = _collect_alerts(result)
-
-    return {
-        "meta": meta,
-        "summary": summary_json,
-        "correlation": correlation_json,
-        "series": {
-            "momentum_scores": momentum_json,
-            "rank_history": rank_json,
-            "stability_scores": stability_json,
-        },
-        "alerts": alerts,
-    }
-
+# Old implementation removed (114 lines)
 
 def _render_text_report(
     result,
