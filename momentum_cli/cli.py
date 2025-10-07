@@ -1936,9 +1936,11 @@ def _summary_to_markdown(frame: pd.DataFrame, lang: str) -> str:
     return _fmt_utils.summary_to_markdown(frame, lang)
 
 
+# Moved to utils.helpers
+from .utils import format_code_label as _utils_format_code_label
+
 def _format_label(code: str) -> str:
-    label = get_label(code)
-    return f"{label} ({code})" if label else code
+    return _utils_format_code_label(code, get_label)
 
 
 def format_correlation(frame: pd.DataFrame, lang: str) -> str:
@@ -3690,17 +3692,11 @@ def rebalance(context, bar_dict):
     return destination
 
 
+# Moved to utils.helpers
+from .utils import dedup_codes as _utils_dedup_codes
+
 def _dedup_codes(codes: Iterable[str]) -> List[str]:
-    seen = set()
-    result: List[str] = []
-    for code in codes:
-        if not code:
-            continue
-        upper = code.upper()
-        if upper not in seen:
-            seen.add(upper)
-            result.append(upper)
-    return result
+    return _utils_dedup_codes(codes)
 
 
 def _show_codes(codes: Sequence[str]) -> None:

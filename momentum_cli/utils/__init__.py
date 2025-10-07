@@ -37,6 +37,10 @@ from .formatters import (
     prepare_summary_table,
     summary_to_markdown,
 )
+from .helpers import (
+    dedup_codes,
+    format_code_label,
+)
 
 __all__ = [
     # Color utilities
@@ -68,4 +72,7 @@ __all__ = [
     "style_summary_value",
     "prepare_summary_table",
     "summary_to_markdown",
+    # Helper utilities
+    "dedup_codes",
+    "format_code_label",
 ]
