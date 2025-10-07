@@ -1219,18 +1219,12 @@ def _delete_template_entry(name: str) -> bool:
     return _business_delete_template(name)
 
 
+# Moved to business.templates
+from .business import print_template_list as _business_print_template_list
+
 def _print_template_list() -> None:
     store = _load_template_store()
-    if not store:
-        print(colorize("暂无保存的分析模板。", "warning"))
-        return
-    print(colorize("已保存的分析模板：", "heading"))
-    for idx, (name, payload) in enumerate(sorted(store.items()), start=1):
-        preset = payload.get("analysis_preset") or "-"
-        presets = ",".join(payload.get("presets", [])) or "自定义券池"
-        date_range = f"{payload.get('start','-')} → {payload.get('end','-')}"
-        line = f" {idx:>2}. {name} | 预设: {preset} | 券池: {presets} | 区间: {date_range}"
-        print(colorize(line, "menu_text"))
+    _business_print_template_list(store)
 
 
 def _build_template_payload(
@@ -4901,45 +4895,11 @@ def _interactive_delete_template() -> None:
     _wait_for_ack()
 
 
+# Moved to business.templates
+from .business import print_template_details as _business_print_template_details
+
 def _print_template_details(name: str, payload: dict) -> None:
-    start = payload.get("start") or "-"
-    end = payload.get("end") or "-"
-    windows = payload.get("momentum_windows") or []
-    weights = payload.get("momentum_weights") or []
-    corr_window = payload.get("corr_window")
-    chop_window = payload.get("chop_window")
-    trend_window = payload.get("trend_window")
-    rank_lookback = payload.get("rank_lookback")
-    presets = payload.get("presets") or []
-    codes = payload.get("etfs") or []
-    print(colorize(f"模板：{name}", "heading"))
-    print(colorize(f"  区间: {start} → {end}", "menu_text"))
-    window_text = ",".join(str(int(win)) for win in windows) if windows else "-"
-    weight_text = (
-        ",".join(f"{float(weight):.2f}" for weight in weights)
-        if weights
-        else "等权"
-    )
-    skip_values = payload.get("momentum_skip_windows") or []
-    skip_text = ",".join(str(int(value)) for value in skip_values) if skip_values else "0"
-    print(colorize(f"  动量窗口: {window_text} | 剔除: {skip_text} | 权重: {weight_text}", "menu_text"))
-    print(
-        colorize(
-            "  参数: "
-            + f"Corr {corr_window} / Chop {chop_window} / 趋势 {trend_window} / 回溯 {rank_lookback}",
-            "menu_hint",
-        )
-    )
-    preset_text = ",".join(presets) if presets else "无标签"
-    print(colorize(f"  预设标签: {preset_text}", "menu_hint"))
-    code_text = ", ".join(_format_label(code) for code in codes) if codes else "-"
-    wrapped_codes = textwrap.fill(
-        code_text,
-        width=90,
-        initial_indent="  券池: ",
-        subsequent_indent="         ",
-    )
-    print(colorize(wrapped_codes, "menu_hint"))
+    _business_print_template_details(name, payload, format_label_func=_format_label)
 
 def _interactive_edit_template_entry() -> None:
     store = _load_template_store()

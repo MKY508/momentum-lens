@@ -19,6 +19,8 @@ from .templates import (
     delete_template,
     list_templates,
     template_to_params,
+    print_template_details,
+    print_template_list,
     TEMPLATE_STORE_PATH,
 )
 from .history import (
@@ -50,6 +52,8 @@ __all__ = [
     "delete_template",
     "list_templates",
     "template_to_params",
+    "print_template_details",
+    "print_template_list",
     "TEMPLATE_STORE_PATH",
     # History
     "record_history",
