@@ -5,12 +5,16 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..utils.colors import colorize
 from .input import read_keypress, clear_screen
 from .menu import MenuState, supports_interactive_menu, print_menu_static
+
+# 环境变量控制：是否保留输出（不擦除之前的菜单）
+_PRESERVE_OUTPUT = os.environ.get("MOMENTUM_CLI_PRESERVE_OUTPUT", "").lower() in {"1", "true", "yes"}
 
 
 def prompt_menu_choice(
@@ -135,8 +139,8 @@ def _handle_interactive_menu(
             header_line_count += 1
 
     while True:
-        # 清除上一次渲染的内容
-        if previous_lines > 0:
+        # 清除上一次渲染的内容（除非保留输出模式）
+        if previous_lines > 0 and not _PRESERVE_OUTPUT:
             sys.stdout.write(f"\033[{previous_lines}A")
             sys.stdout.write("\033[J")
             sys.stdout.flush()
@@ -168,9 +172,9 @@ def _handle_interactive_menu(
         sys.stdout.write(colorize(prompt_text, "prompt"))
         sys.stdout.flush()
 
-        # 记录本次渲染的总行数
+        # 记录本次渲染的总行数（保留输出模式下不记录，避免重复擦除）
         current_lines = len(menu_lines) + footer_line_count + 1
-        previous_lines = current_lines
+        previous_lines = current_lines if not _PRESERVE_OUTPUT else 0
 
         # 读取按键
         key = read_keypress()
@@ -195,10 +199,13 @@ def _handle_interactive_menu(
         )
 
         if isinstance(result, str):
-            # 清除渲染
-            if previous_lines > 0:
+            # 清除渲染（除非保留输出模式）
+            if previous_lines > 0 and not _PRESERVE_OUTPUT:
                 sys.stdout.write(f"\033[{previous_lines}A\033[J")
                 sys.stdout.flush()
+            elif _PRESERVE_OUTPUT:
+                # 保留输出模式：打印选择结果
+                print(f"\n{colorize('选择:', 'prompt')} {result}")
             return result
         elif isinstance(result, dict):
             # 更新状态
