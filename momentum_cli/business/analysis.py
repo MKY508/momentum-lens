@@ -1,4 +1,6 @@
 """分析业务逻辑模块扩展：分析编排"""
+from __future__ import annotations
+
 
 
 def run_analysis_and_build_outputs(
@@ -68,7 +70,7 @@ def run_analysis_and_build_outputs(
         "report_text": report_text,
         "title": analysis_label,
     }
-from __future__ import annotations
+
 
 from dataclasses import asdict
 from pathlib import Path
