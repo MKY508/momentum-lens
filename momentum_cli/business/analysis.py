@@ -1,9 +1,73 @@
-"""
-分析流程编排（不含渲染）
+"""分析业务逻辑模块扩展：分析编排"""
 
-- 将参数组装与 AnalysisConfig 构建放在业务层，CLI 仅负责交互与显示
-- 运行 analyze 并返回结果对象；报告渲染/载荷拼装仍由 CLI 处理
-"""
+
+def run_analysis_and_build_outputs(
+    params: dict,
+    build_payload_func,
+    render_text_report_func,
+    default_settings: dict,
+) -> dict:
+    """
+    运行分析并构建输出（payload + text report）。
+
+    Args:
+        params: 分析参数字典
+        build_payload_func: 构建结果载荷的函数
+        render_text_report_func: 渲染文本报告的函数
+        default_settings: 默认设置字典（用于填充缺失参数）
+
+    Returns:
+        包含 result/config/momentum_config/preset/payload/report_text/title 的状态字典
+    """
+    from .analysis import build_configs_from_params, run_analysis_only
+
+    # 合并默认参数
+    params = dict(params)
+    params.setdefault("presets", [])
+    params.setdefault("stability_method", default_settings.get("stability_method"))
+    params.setdefault("stability_window", default_settings.get("stability_window"))
+    params.setdefault("stability_top_n", default_settings.get("stability_top_n"))
+    params.setdefault("stability_weight", default_settings.get("stability_weight"))
+    params.setdefault("momentum_percentile_lookback", default_settings.get("momentum_percentile_lookback"))
+    params.setdefault("momentum_significance_threshold", default_settings.get("momentum_significance_threshold"))
+    params.setdefault("trend_consistency_adx_threshold", default_settings.get("trend_consistency_adx_threshold"))
+    params.setdefault("trend_consistency_chop_threshold", default_settings.get("trend_consistency_chop_threshold"))
+    params.setdefault("trend_consistency_fast_span", default_settings.get("trend_consistency_fast_span"))
+    params.setdefault("trend_consistency_slow_span", default_settings.get("trend_consistency_slow_span"))
+
+    preset = params.get("analysis_preset")
+    lang = params.get("lang", "zh")
+
+    # 构建配置并运行分析
+    config, momentum_config = build_configs_from_params(params)
+    result = run_analysis_only(config)
+
+    # 构建输出
+    payload = build_payload_func(result, config, momentum_config, preset, lang)
+    report_text = render_text_report_func(result, config, momentum_config, preset, lang)
+
+    # 确定分析标签
+    analysis_label = params.get("analysis_name")
+    if not analysis_label:
+        bundle_context = params.get("_bundle_context")
+        if preset:
+            analysis_label = f"{preset.name} [{preset.key}]"
+        elif bundle_context:
+            analysis_label = bundle_context
+        else:
+            analysis_label = "自定义分析"
+    params.setdefault("analysis_name", analysis_label)
+
+    return {
+        "result": result,
+        "config": config,
+        "momentum_config": momentum_config,
+        "preset": preset,
+        "params": params,
+        "payload": payload,
+        "report_text": report_text,
+        "title": analysis_label,
+    }
 from __future__ import annotations
 
 from dataclasses import asdict

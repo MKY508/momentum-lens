@@ -3285,6 +3285,9 @@ def _collect_parameters_interactive() -> Optional[dict]:
     }
 
 
+# Moved core logic to business.analysis.run_analysis_and_build_outputs
+from .business.analysis import run_analysis_and_build_outputs as _biz_run_analysis_and_build
+
 def _run_analysis_with_params(
     params: dict,
     *,
@@ -3292,51 +3295,60 @@ def _run_analysis_with_params(
     bundle_context: str | None = None,
     bundle_interactive: bool = True,
 ) -> dict:
+    # Bundle refresh prompt (CLI concern)
     if bundle_context:
         _maybe_prompt_bundle_refresh(bundle_interactive, bundle_context)
-    params.setdefault("presets", [])
-    preset: AnalysisPreset | None = params.get("analysis_preset")
-    from .business.analysis import build_configs_from_params
-    # merge defaults
+
+    # Inject bundle_context for label generation
     params = dict(params)
-    params.setdefault("stability_method", _STABILITY_METHOD)
-    params.setdefault("stability_window", _STABILITY_WINDOW)
-    params.setdefault("stability_top_n", _STABILITY_TOP_N)
-    params.setdefault("stability_weight", _STABILITY_WEIGHT)
-    params.setdefault("momentum_percentile_lookback", _MOMENTUM_SIGNIFICANCE_LOOKBACK)
-    params.setdefault("momentum_significance_threshold", _MOMENTUM_SIGNIFICANCE_THRESHOLD)
-    params.setdefault("trend_consistency_adx_threshold", _TREND_CONSISTENCY_ADX)
-    params.setdefault("trend_consistency_chop_threshold", _TREND_CONSISTENCY_CHOP)
-    params.setdefault("trend_consistency_fast_span", _TREND_FAST_SPAN)
-    params.setdefault("trend_consistency_slow_span", _TREND_SLOW_SPAN)
+    params["_bundle_context"] = bundle_context
 
-    config, momentum_config = build_configs_from_params(params)
+    # Prepare default settings
+    default_settings = {
+        "stability_method": _STABILITY_METHOD,
+        "stability_window": _STABILITY_WINDOW,
+        "stability_top_n": _STABILITY_TOP_N,
+        "stability_weight": _STABILITY_WEIGHT,
+        "momentum_percentile_lookback": _MOMENTUM_SIGNIFICANCE_LOOKBACK,
+        "momentum_significance_threshold": _MOMENTUM_SIGNIFICANCE_THRESHOLD,
+        "trend_consistency_adx_threshold": _TREND_CONSISTENCY_ADX,
+        "trend_consistency_chop_threshold": _TREND_CONSISTENCY_CHOP,
+        "trend_consistency_fast_span": _TREND_FAST_SPAN,
+        "trend_consistency_slow_span": _TREND_SLOW_SPAN,
+    }
 
-    lang = params.get("lang", "zh")
-    from .business.analysis import run_analysis_only
-    result = run_analysis_only(config)
-    payload = _build_result_payload(result, config, momentum_config, preset, lang)
-    report_text = _render_text_report(result, config, momentum_config, preset, lang)
-    print(report_text)
+    # Run analysis and build outputs (business layer)
+    state = _biz_run_analysis_and_build(
+        params,
+        build_payload_func=_build_result_payload,
+        render_text_report_func=_render_text_report,
+        default_settings=default_settings,
+    )
+
+    # Display report (CLI concern)
+    print(state["report_text"])
     print("")
 
+    # Deprecated features warnings
     if params.get("make_plots"):
         print(colorize("当前版本已禁用图表生成功能。", "warning"))
     if params.get("export_csv"):
         print(colorize("当前版本已禁用 CSV 导出功能。", "warning"))
+
+    # Post-actions (interactive prompts - CLI concern)
+    result = state["result"]
+    config = state["config"]
+    momentum_config = state["momentum_config"]
+    preset = state["preset"]
 
     if post_actions and preset and _prompt_yes_no("是否基于该预设运行简易回测？", False):
         _run_simple_backtest(result, preset)
 
     if post_actions and _prompt_yes_no("是否导出为 RQAlpha 策略脚本？", False):
         default_path = Path("strategies") / "momentum_strategy.py"
-        raw_path = input(
-            colorize(f"输出文件（默认 {default_path}）: ", "prompt")
-        ).strip()
+        raw_path = input(colorize(f"输出文件（默认 {default_path}）: ", "prompt")).strip()
         dest_path = Path(raw_path) if raw_path else default_path
-        freq_raw = input(
-            colorize("调仓频率（monthly/weekly/daily，默认 monthly）: ", "prompt")
-        ).strip().lower()
+        freq_raw = input(colorize("调仓频率（monthly/weekly/daily，默认 monthly）: ", "prompt")).strip().lower()
         freq = freq_raw or "monthly"
         if freq not in {"monthly", "weekly", "daily"}:
             print(colorize("频率输入无效，已回退为 monthly。", "warning"))
@@ -3361,28 +3373,8 @@ def _run_analysis_with_params(
             print(colorize(f"已生成策略文件: {exported}", "value_positive"))
             print(colorize("可通过 rqalpha run -f <文件路径> 进行回测。", "menu_hint"))
 
-    analysis_label = params.get("analysis_name")
-    if not analysis_label:
-        if preset:
-            analysis_label = f"{preset.name} [{preset.key}]"
-        elif bundle_context:
-            analysis_label = bundle_context
-        else:
-            analysis_label = "自定义分析"
-    params.setdefault("analysis_name", analysis_label)
-
-    state = {
-        "result": result,
-        "config": config,
-        "momentum_config": momentum_config,
-        "preset": preset,
-        "params": params,
-        "payload": payload,
-        "report_text": report_text,
-        "title": analysis_label,
-    }
-
-    _record_report_history(state, analysis_label, preset)
+    # Record history (CLI concern)
+    _record_report_history(state, state["title"], preset)
 
     return state
 
