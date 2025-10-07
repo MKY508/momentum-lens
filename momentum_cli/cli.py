@@ -2757,183 +2757,48 @@ def _configure_signal_thresholds() -> None:
     )
 
 
-def _configure_stability_settings() -> None:
-    while True:
-        method_label = (
-            "Top-10 存活率"
-            if _STABILITY_METHOD == "presence_ratio"
-            else "Kendall-τ 排名连贯度"
-        )
-        header_lines = [
-            "",
-            colorize(
-                f"当前方法: {method_label} ({_STABILITY_METHOD})",
-                "menu_text",
-            ),
-            colorize(
-                f"窗口 {_STABILITY_WINDOW} 日 · Top{_STABILITY_TOP_N} · 权重 {_STABILITY_WEIGHT:.2f}",
-                "menu_hint",
-            ),
-        ]
-        options = [
-            {"key": "1", "label": "切换稳定度方法"},
-            {"key": "2", "label": "调整稳定度窗口"},
-            {"key": "3", "label": "设置 Top-N 门槛"},
-            {"key": "4", "label": "设置稳定度权重"},
-            {"key": "0", "label": "返回上级菜单"},
-        ]
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 稳定度参数设置 ─" + "─" * 14,
-            header_lines=header_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="0",
-        )
-        if choice in {"0", "__escape__"}:
-            return
-        if choice == "1":
-            method_options = [
-                {
-                    "key": "presence_ratio",
-                    "display": "1",
-                    "label": "Top-10 存活率 (presence_ratio)",
-                },
-                {
-                    "key": "kendall",
-                    "display": "2",
-                    "label": "Kendall-τ 排名连贯度 (kendall)",
-                },
-            ]
-            selected = _prompt_menu_choice(
-                method_options,
-                title="┌─ 选择稳定度方法 ─" + "─" * 12,
-                header_lines=[""],
-                hint="↑/↓ 选择 · 回车确认",
-                default_key=_STABILITY_METHOD,
-                allow_escape=True,
-            )
-            if selected not in {"__escape__", ""}:
-                updated = _set_stability_method(selected)
-                method_label = (
-                    "Top-10 存活率" if updated == "presence_ratio" else "Kendall-τ 排名连贯度"
-                )
-                print(colorize(f"已切换稳定度方法为 {method_label} ({updated}).", "value_positive"))
-            continue
-        if choice == "2":
-            raw = input(
-                colorize(
-                    f"稳定度窗口（日）（当前 {_STABILITY_WINDOW}）: ", "prompt"
-                )
-            ).strip()
-            if raw:
-                if raw.isdigit():
-                    updated = _set_stability_window(int(raw))
-                    print(colorize(f"稳定度窗口已更新为 {updated} 日。", "value_positive"))
-                else:
-                    print(colorize("请输入正整数。", "warning"))
-            continue
-        if choice == "3":
-            raw = input(
-                colorize(
-                    f"Top-N 阈值（当前 {_STABILITY_TOP_N}）: ", "prompt"
-                )
-            ).strip()
-            if raw:
-                if raw.isdigit():
-                    updated = _set_stability_top_n(int(raw))
-                    print(colorize(f"Top-N 阈值已更新为 {updated}。", "value_positive"))
-                else:
-                    print(colorize("请输入正整数。", "warning"))
-            continue
-        if choice == "4":
-            raw = input(
-                colorize(
-                    f"稳定度权重 0-1（当前 {_STABILITY_WEIGHT:.2f}）: ", "prompt"
-                )
-            ).strip()
-            if raw:
-                try:
-                    value = float(raw)
-                except ValueError:
-                    print(colorize("请输入数值。", "warning"))
-                    continue
-                updated = _set_stability_weight(value)
-                print(colorize(f"稳定度权重已更新为 {updated:.2f}。", "value_positive"))
-            continue
+# Moved to business.config (103 lines)
+from .business import configure_stability_settings_interactive as _biz_config_stability
 
+def _configure_stability_settings() -> None:
+    _biz_config_stability(
+        current_method=_STABILITY_METHOD,
+        current_window=_STABILITY_WINDOW,
+        current_top_n=_STABILITY_TOP_N,
+        current_weight=_STABILITY_WEIGHT,
+        set_method_func=_set_stability_method,
+        set_window_func=_set_stability_window,
+        set_top_n_func=_set_stability_top_n,
+        set_weight_func=_set_stability_weight,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
+
+
+# Moved to business.bundle (72 lines)
+from .business import update_data_bundle_interactive as _biz_update_bundle
 
 def _update_data_bundle() -> None:
     global _LAST_BUNDLE_REFRESH, _LAST_BACKTEST_CONTEXT, _BUNDLE_STATUS_CACHE, _BUNDLE_UPDATE_PROMPTED
 
-    # 初始化缓存如果为None
     if _BUNDLE_STATUS_CACHE is None:
         _BUNDLE_STATUS_CACHE = {}
 
-    status = _bundle_status(force_refresh=True, cache=_BUNDLE_STATUS_CACHE)
-    if status.get("state") == "fresh":
-        version_display = status.get("version") or status.get("version_raw") or "最新版本"
-        print(colorize(f"当前数据包 {version_display} 已是最新，无需重新下载。", "info"))
-        _BUNDLE_UPDATE_PROMPTED = False
-        _wait_for_ack()
-        return
-    command = _find_rqalpha_command()
-    if not command:
-        print(colorize("未找到 rqalpha 可执行文件，请先安装或激活环境后再试。", "danger"))
-        _wait_for_ack()
-        return
-    print(colorize("开始下载最新的 RQAlpha 数据包，这可能需要几分钟……", "info"))
-    download_command = command + ["download-bundle"]
-    try:
-        download_result = subprocess.run(
-            download_command, cwd=str(Path.home()), check=False
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(colorize(f"download-bundle 调用失败: {exc}", "danger"))
-        _wait_for_ack()
-        return
-    if download_result.returncode == 0:
+    def on_refresh():
+        global _LAST_BUNDLE_REFRESH, _LAST_BACKTEST_CONTEXT, _BUNDLE_STATUS_CACHE, _BUNDLE_UPDATE_PROMPTED
         _LAST_BUNDLE_REFRESH = dt.datetime.now()
-        bundle_path = Path.home() / ".rqalpha" / "bundle"
-        print(colorize("数据下载完成，分析将基于最新 bundle。", "value_positive"))
-        print(colorize(f"数据路径: {bundle_path}，包含 ETF/股票/指数的日线行情，可回溯到历史最早可用日期。", "menu_hint"))
         _LAST_BACKTEST_CONTEXT = None
         _BUNDLE_STATUS_CACHE = None
         _BUNDLE_UPDATE_PROMPTED = False
-        _wait_for_ack()
-        return
-    printable_dl = " ".join(download_command)
-    print(
-        colorize(
-            f"download-bundle 失败（退出码 {download_result.returncode}）。正在尝试 rqalpha update-bundle……",
-            "warning",
-        )
+
+    _biz_update_bundle(
+        bundle_status_func=lambda force, cache: _bundle_status(force_refresh=force, cache=cache or _BUNDLE_STATUS_CACHE),
+        find_rqalpha_func=_find_rqalpha_command,
+        on_refresh_callback=on_refresh,
+        wait_for_ack_func=_wait_for_ack,
+        colorize_func=colorize,
     )
-    update_command = command + ["update-bundle"]
-    try:
-        update_result = subprocess.run(update_command, cwd=str(Path.home()), check=False)
-    except Exception as exc:  # noqa: BLE001
-        print(colorize(f"update-bundle 调用失败: {exc}", "danger"))
-        _wait_for_ack()
-        return
-    if update_result.returncode == 0:
-        _LAST_BUNDLE_REFRESH = dt.datetime.now()
-        bundle_path = Path.home() / ".rqalpha" / "bundle"
-        print(colorize("数据更新完成，分析将基于最新 bundle。", "value_positive"))
-        print(colorize(f"数据路径: {bundle_path}，包含 ETF/股票/指数的日线行情，可回溯到历史最早可用日期。", "menu_hint"))
-        _LAST_BACKTEST_CONTEXT = None
-        _BUNDLE_STATUS_CACHE = None
-        _BUNDLE_UPDATE_PROMPTED = False
-        _wait_for_ack()
-        return
-    printable_up = " ".join(update_command)
-    print(
-        colorize(
-            "数据更新失败。您可以手动执行以下命令后重试: "
-            f"{printable_dl} 或 {printable_up}",
-            "danger",
-        )
-    )
-    _wait_for_ack()
 
 
 def _normalize_momentum_weights(

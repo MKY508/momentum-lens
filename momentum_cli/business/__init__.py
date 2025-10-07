@@ -48,6 +48,10 @@ from .config import (
     configure_plot_style_interactive,
     configure_cli_theme_interactive,
     configure_signal_thresholds_interactive,
+    configure_stability_settings_interactive,
+)
+from .bundle import (
+    update_data_bundle_interactive,
 )
 
 __all__ = [
@@ -91,4 +95,7 @@ __all__ = [
     "configure_plot_style_interactive",
     "configure_cli_theme_interactive",
     "configure_signal_thresholds_interactive",
+    "configure_stability_settings_interactive",
+    # Bundle
+    "update_data_bundle_interactive",
 ]

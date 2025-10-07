@@ -357,3 +357,141 @@ def configure_signal_thresholds_interactive(
         trend_slow_span,
     )
     print(colorize_func("阈值设置已更新。后续分析将应用新的判定条件。", "menu_hint"))
+
+
+
+
+def configure_stability_settings_interactive(
+    current_method: str,
+    current_window: int,
+    current_top_n: int,
+    current_weight: float,
+    set_method_func: Callable[[str], str],
+    set_window_func: Callable[[int], int],
+    set_top_n_func: Callable[[int], int],
+    set_weight_func: Callable[[float], float],
+    prompt_menu_choice_func: Callable,
+    colorize_func: Callable,
+    prompt_input_func: Callable,
+) -> None:
+    """交互式配置稳定度设置
+
+    Args:
+        current_method: 当前稳定度方法
+        current_window: 当前窗口大小
+        current_top_n: 当前Top-N阈值
+        current_weight: 当前权重
+        set_method_func: 设置方法的函数
+        set_window_func: 设置窗口的函数
+        set_top_n_func: 设置Top-N的函数
+        set_weight_func: 设置权重的函数
+        prompt_menu_choice_func: 菜单选择函数
+        colorize_func: 着色函数
+        prompt_input_func: 输入提示函数
+    """
+    while True:
+        method_label = (
+            "Top-10 存活率"
+            if current_method == "presence_ratio"
+            else "Kendall-τ 排名连贯度"
+        )
+        header_lines = [
+            "",
+            colorize_func(
+                f"当前方法: {method_label} ({current_method})",
+                "menu_text",
+            ),
+            colorize_func(
+                f"窗口 {current_window} 日 · Top{current_top_n} · 权重 {current_weight:.2f}",
+                "menu_hint",
+            ),
+        ]
+        options = [
+            {"key": "1", "label": "切换稳定度方法"},
+            {"key": "2", "label": "调整稳定度窗口"},
+            {"key": "3", "label": "设置 Top-N 门槛"},
+            {"key": "4", "label": "设置稳定度权重"},
+            {"key": "0", "label": "返回上级菜单"},
+        ]
+        choice = prompt_menu_choice_func(
+            options,
+            title="┌─ 稳定度参数设置 ─" + "─" * 14,
+            header_lines=header_lines,
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
+            default_key="0",
+        )
+        if choice in {"0", "__escape__"}:
+            return
+
+        if choice == "1":
+            method_options = [
+                {
+                    "key": "presence_ratio",
+                    "display": "1",
+                    "label": "Top-10 存活率 (presence_ratio)",
+                },
+                {
+                    "key": "kendall",
+                    "display": "2",
+                    "label": "Kendall-τ 排名连贯度 (kendall)",
+                },
+            ]
+            selected = prompt_menu_choice_func(
+                method_options,
+                title="┌─ 选择稳定度方法 ─" + "─" * 12,
+                header_lines=[""],
+                hint="↑/↓ 选择 · 回车确认",
+                default_key=current_method,
+                allow_escape=True,
+            )
+            if selected not in {"__escape__", ""}:
+                updated = set_method_func(selected)
+                method_label = (
+                    "Top-10 存活率" if updated == "presence_ratio" else "Kendall-τ 排名连贯度"
+                )
+                print(colorize_func(f"已切换稳定度方法为 {method_label} ({updated}).", "value_positive"))
+            continue
+
+        if choice == "2":
+            raw = prompt_input_func(
+                colorize_func(
+                    f"稳定度窗口（日）（当前 {current_window}）: ", "prompt"
+                )
+            ).strip()
+            if raw:
+                if raw.isdigit():
+                    updated = set_window_func(int(raw))
+                    print(colorize_func(f"稳定度窗口已更新为 {updated} 日。", "value_positive"))
+                else:
+                    print(colorize_func("请输入正整数。", "warning"))
+            continue
+
+        if choice == "3":
+            raw = prompt_input_func(
+                colorize_func(
+                    f"Top-N 阈值（当前 {current_top_n}）: ", "prompt"
+                )
+            ).strip()
+            if raw:
+                if raw.isdigit():
+                    updated = set_top_n_func(int(raw))
+                    print(colorize_func(f"Top-N 阈值已更新为 {updated}。", "value_positive"))
+                else:
+                    print(colorize_func("请输入正整数。", "warning"))
+            continue
+
+        if choice == "4":
+            raw = prompt_input_func(
+                colorize_func(
+                    f"稳定度权重 0-1（当前 {current_weight:.2f}）: ", "prompt"
+                )
+            ).strip()
+            if raw:
+                try:
+                    value = float(raw)
+                except ValueError:
+                    print(colorize_func("请输入数值。", "warning"))
+                    continue
+                updated = set_weight_func(value)
+                print(colorize_func(f"稳定度权重已更新为 {updated:.2f}。", "value_positive"))
+            continue
