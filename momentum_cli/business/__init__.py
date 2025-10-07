@@ -3,6 +3,11 @@
 提供核心业务功能，包括模板管理、报告生成等。
 """
 
+from .analysis import (
+    build_configs_from_params,
+    run_analysis_only,
+    run_quick_analysis,
+)
 from .reports import (
     render_text_report,
     render_markdown_report,
@@ -55,6 +60,10 @@ from .bundle import (
 )
 
 __all__ = [
+    # Analysis
+    "build_configs_from_params",
+    "run_analysis_only",
+    "run_quick_analysis",
     # Reports
     "render_text_report",
     "render_markdown_report",

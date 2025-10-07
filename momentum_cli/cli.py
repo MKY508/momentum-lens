@@ -4398,59 +4398,16 @@ def _show_settings_menu() -> None:
     _run_settings()
 
 
+# Moved to business.analysis (54 lines)
+from .business import run_quick_analysis as _biz_run_quick_analysis
+
 def _run_quick_analysis(post_actions: bool = False) -> dict | None:
-    preset = ANALYSIS_PRESETS.get("slow-core")
-    if not preset:
-        print(colorize("未找到 slow-core 分析预设，无法执行快速分析。", "warning"))
-        return None
-    core_pool = PRESETS.get("core")
-    satellite_pool = PRESETS.get("satellite")
-    if not core_pool and not satellite_pool:
-        print(colorize("未定义核心或卫星券池，无法执行快速分析。", "warning"))
-        return None
-    combined_codes: List[str] = []
-    preset_tags: List[str] = []
-    if core_pool:
-        combined_codes.extend(core_pool.tickers)
-        preset_tags.append("core")
-    if satellite_pool:
-        combined_codes.extend(satellite_pool.tickers)
-        preset_tags.append("satellite")
-    today = dt.date.today()
-    lookback_days = max(365 * 5, max(preset.momentum_windows) * 4, 750)
-    start_date = (today - dt.timedelta(days=lookback_days)).isoformat()
-    params = {
-        "codes": _dedup_codes(combined_codes),
-        "start": start_date,
-        "end": today.isoformat(),
-        "windows": tuple(preset.momentum_windows),
-        "corr_window": preset.corr_window,
-        "make_plots": False,
-        "export_csv": False,
-        "chop_window": preset.chop_window,
-        "trend_window": preset.trend_window,
-        "rank_lookback": preset.rank_lookback,
-        "output_dir": "results",
-        "weights": (
-            tuple(preset.momentum_weights)
-            if preset.momentum_weights is not None
-            else None
-        ),
-        "skip_windows": (
-            tuple(preset.momentum_skip_windows)
-            if preset.momentum_skip_windows is not None
-            else None
-        ),
-        "analysis_preset": preset,
-        "presets": preset_tags,
-        "lang": "zh",
-        "analysis_name": f"快速分析 · {preset.name}",
-    }
-    return _run_analysis_with_params(
-        params,
-        post_actions=post_actions,
-        bundle_context="快速分析",
-        bundle_interactive=True,
+    return _biz_run_quick_analysis(
+        analysis_presets=ANALYSIS_PRESETS,
+        code_presets=PRESETS,
+        dedup_codes_func=_dedup_codes,
+        run_analysis_func=_run_analysis_with_params,
+        colorize_func=colorize,
     )
 
 

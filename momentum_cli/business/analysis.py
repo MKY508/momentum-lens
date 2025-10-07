@@ -50,3 +50,87 @@ def run_analysis_only(config: AnalysisConfig):
     """仅运行分析，返回结果对象。"""
     return analyze(config)
 
+
+
+
+import datetime as dt
+from typing import Any, Callable, Dict, List, Optional
+
+
+def run_quick_analysis(
+    analysis_presets: Dict[str, Any],
+    code_presets: Dict[str, Any],
+    dedup_codes_func: Callable[[List[str]], List[str]],
+    run_analysis_func: Callable[[Dict[str, Any], bool, str, bool], Optional[Dict]],
+    colorize_func: Callable,
+) -> Optional[Dict]:
+    """执行快速分析
+
+    Args:
+        analysis_presets: 分析预设字典
+        code_presets: 代码预设字典
+        dedup_codes_func: 去重代码函数
+        run_analysis_func: 运行分析函数
+        colorize_func: 着色函数
+
+    Returns:
+        分析状态字典或None
+    """
+    preset = analysis_presets.get("slow-core")
+    if not preset:
+        print(colorize_func("未找到 slow-core 分析预设，无法执行快速分析。", "warning"))
+        return None
+
+    core_pool = code_presets.get("core")
+    satellite_pool = code_presets.get("satellite")
+    if not core_pool and not satellite_pool:
+        print(colorize_func("未定义核心或卫星券池，无法执行快速分析。", "warning"))
+        return None
+
+    combined_codes: List[str] = []
+    preset_tags: List[str] = []
+    if core_pool:
+        combined_codes.extend(core_pool.tickers)
+        preset_tags.append("core")
+    if satellite_pool:
+        combined_codes.extend(satellite_pool.tickers)
+        preset_tags.append("satellite")
+
+    today = dt.date.today()
+    lookback_days = max(365 * 5, max(preset.momentum_windows) * 4, 750)
+    start_date = (today - dt.timedelta(days=lookback_days)).isoformat()
+
+    params = {
+        "codes": dedup_codes_func(combined_codes),
+        "start": start_date,
+        "end": today.isoformat(),
+        "windows": tuple(preset.momentum_windows),
+        "corr_window": preset.corr_window,
+        "make_plots": False,
+        "export_csv": False,
+        "chop_window": preset.chop_window,
+        "trend_window": preset.trend_window,
+        "rank_lookback": preset.rank_lookback,
+        "output_dir": "results",
+        "weights": (
+            tuple(preset.momentum_weights)
+            if preset.momentum_weights is not None
+            else None
+        ),
+        "skip_windows": (
+            tuple(preset.momentum_skip_windows)
+            if preset.momentum_skip_windows is not None
+            else None
+        ),
+        "analysis_preset": preset,
+        "presets": preset_tags,
+        "lang": "zh",
+        "analysis_name": f"快速分析 · {preset.name}",
+    }
+
+    return run_analysis_func(
+        params,
+        post_actions=False,
+        bundle_context="快速分析",
+        bundle_interactive=True,
+    )
