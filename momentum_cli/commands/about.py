@@ -3,7 +3,6 @@
 """
 from __future__ import annotations
 
-from . import typing as _typing  # noqa: F401  # 预留给后续类型导入
 from ..utils.colors import colorize
 
 
