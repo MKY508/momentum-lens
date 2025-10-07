@@ -358,66 +358,106 @@ def build_result_payload(
     build_gate_entries_func=None,
     max_series_export: int = 252,
 ) -> dict:
-    """构建结果载荷
-
-    Args:
-        result: 分析结果
-        config: 分析配置
-        momentum_config: 动量配置
-        preset: 分析预设
-        lang: 语言
-        collect_alerts_func: 收集预警的函数
-        build_gate_entries_func: 构建门控条目的函数
-        max_series_export: 最大导出序列长度
-
-    Returns:
-        结果载荷字典
-    """
+    """构建结果载荷"""
     import json
     import datetime as dt
     from dataclasses import asdict
 
-    # 处理摘要数据
+    # 摘要
     summary_df = result.summary.copy()
     if "trade_date" in summary_df.columns:
         summary_df["trade_date"] = summary_df["trade_date"].apply(
-            lambda value: value.isoformat() if hasattr(value, "isoformat") else str(value)
+            lambda v: v.isoformat() if hasattr(v, "isoformat") else str(v)
         )
-    summary_json = json.loads(
-        summary_df.to_json(orient="records", force_ascii=False)
-    )
+    summary_json = json.loads(summary_df.to_json(orient="records", force_ascii=False))
 
-    # 处理相关矩阵
+    # 相关矩阵
     correlation_df = result.correlation.round(4)
     correlation_json = json.loads(correlation_df.to_json(force_ascii=False))
 
-    # 处理动量序列
-    momentum_series = result.momentum_scores.tail(max_series_export).reset_index()
-    if not momentum_series.empty:
-        momentum_series.rename(columns={momentum_series.columns[0]: "date"}, inplace=True)
-        momentum_series["date"] = momentum_series["date"].astype(str)
-    else:
-        momentum_series["date"] = []
-    momentum_json = json.loads(
-        momentum_series.to_json(orient="records", force_ascii=False)
-    )
+    # 动量/排名/稳定度序列
+    def _series_to_json(series_df):
+        if not series_df.empty:
+            series_df = series_df.tail(max_series_export).reset_index()
+            series_df.rename(columns={series_df.columns[0]: "date"}, inplace=True)
+            series_df["date"] = series_df["date"].astype(str)
+        else:
+            series_df["date"] = []
+        return json.loads(series_df.to_json(orient="records", force_ascii=False))
 
-    # 处理排名序列
-    rank_series = result.rank_history.tail(max_series_export).reset_index()
-    if not rank_series.empty:
-        rank_series.rename(columns={rank_series.columns[0]: "date"}, inplace=True)
-        rank_series["date"] = rank_series["date"].astype(str)
-    else:
-        rank_series["date"] = []
-    rank_json = json.loads(
-        rank_series.to_json(orient="records", force_ascii=False)
-    )
+    momentum_json = _series_to_json(result.momentum_scores.copy())
+    rank_json = _series_to_json(result.rank_history.copy())
+    stability_json = _series_to_json(result.stability_scores.copy())
 
-    # 处理稳定度序列
-    stability_series = result.stability_scores.tail(max_series_export).reset_index()
-    if not stability_series.empty:
-        stability_series.rename(columns={stability_series.columns[0]: "date"}, inplace=True)
-        stability_series["date"] = stability_series["date"].astype(str)
+    # 元数据
+    meta: dict = {
+        "start": config.start_date,
+        "end": config.end_date,
+        "etfs": list(config.etfs),
+        "exclude": list(config.exclude),
+        "etf_count": len(result.summary),
+        "momentum_windows": list(momentum_config.windows),
+        "momentum_weights": list(momentum_config.weights)
+        if momentum_config.weights is not None
+        else None,
+        "corr_window": config.corr_window,
+        "chop_window": config.chop_window,
+        "trend_window": config.trend_window,
+        "rank_lookback": config.rank_change_lookback,
+        "bundle_path": str(config.bundle_path) if config.bundle_path else None,
+        "output_dir": str(config.output_dir),
+        "make_plots": config.make_plots,
+        "runtime_seconds": result.runtime_seconds,
+        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "lang": lang,
+        "plot_paths": [str(p) for p in result.plot_paths],
+        "momentum_percentile_lookback": config.momentum_percentile_lookback,
+        "momentum_significance_threshold": config.momentum_significance_threshold,
+        "trend_consistency_adx_threshold": config.trend_consistency_adx_threshold,
+        "trend_consistency_chop_threshold": config.trend_consistency_chop_threshold,
+        "trend_consistency_fast_span": config.trend_consistency_fast_span,
+        "trend_consistency_slow_span": config.trend_consistency_slow_span,
+        "stability_method": config.stability_method,
+        "stability_window": config.stability_window,
+        "stability_top_n": config.stability_top_n,
+        "stability_weight": config.stability_weight,
+    }
+
+    if preset:
+        meta["analysis_preset"] = asdict(preset)
+
+    market_snapshot = getattr(result, "market_snapshot", None)
+    if market_snapshot:
+        snapshot = dict(market_snapshot)
+        trade_date = snapshot.get("trade_date")
+        if hasattr(trade_date, "isoformat"):
+            snapshot["trade_date"] = trade_date.isoformat()
+        meta["market_snapshot"] = snapshot
+
+    if build_gate_entries_func:
+        gates = build_gate_entries_func(result, lang)
+        if gates:
+            meta["strategy_gates"] = [{"text": t, "style": s} for t, s in gates]
+
+    momentum_payload = asdict(momentum_config)
+    momentum_payload["windows"] = list(momentum_payload["windows"])
+    if momentum_payload.get("weights") is not None:
+        momentum_payload["weights"] = list(momentum_payload["weights"])
+    meta["momentum_config"] = momentum_payload
+
+    alerts = collect_alerts_func(result)
+
+    return {
+        "meta": meta,
+        "summary": summary_json,
+        "correlation": correlation_json,
+        "series": {
+            "momentum_scores": momentum_json,
+            "rank_history": rank_json,
+            "stability_scores": stability_json,
+        },
+        "alerts": alerts,
+    }
 
 
 def render_markdown_report(
@@ -519,85 +559,3 @@ def render_markdown_report(
             lines.append(f"- {path}")
 
     return "\n".join(lines).strip()
-
-    else:
-        stability_series["date"] = []
-    stability_json = json.loads(
-        stability_series.to_json(orient="records", force_ascii=False)
-    )
-
-    # 构建元数据
-    meta: dict = {
-        "start": config.start_date,
-        "end": config.end_date,
-        "etfs": list(config.etfs),
-        "exclude": list(config.exclude),
-        "etf_count": len(result.summary),
-        "momentum_windows": list(momentum_config.windows),
-        "momentum_weights": list(momentum_config.weights)
-        if momentum_config.weights is not None
-        else None,
-        "corr_window": config.corr_window,
-        "chop_window": config.chop_window,
-        "trend_window": config.trend_window,
-        "rank_lookback": config.rank_change_lookback,
-        "bundle_path": str(config.bundle_path) if config.bundle_path else None,
-        "output_dir": str(config.output_dir),
-        "make_plots": config.make_plots,
-        "runtime_seconds": result.runtime_seconds,
-        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
-        "lang": lang,
-        "plot_paths": [str(path) for path in result.plot_paths],
-        "momentum_percentile_lookback": config.momentum_percentile_lookback,
-        "momentum_significance_threshold": config.momentum_significance_threshold,
-        "trend_consistency_adx_threshold": config.trend_consistency_adx_threshold,
-        "trend_consistency_chop_threshold": config.trend_consistency_chop_threshold,
-        "trend_consistency_fast_span": config.trend_consistency_fast_span,
-        "trend_consistency_slow_span": config.trend_consistency_slow_span,
-        "stability_method": config.stability_method,
-        "stability_window": config.stability_window,
-        "stability_top_n": config.stability_top_n,
-        "stability_weight": config.stability_weight,
-    }
-
-    if preset:
-        meta["analysis_preset"] = asdict(preset)
-
-    # 市场快照
-    market_snapshot = getattr(result, "market_snapshot", None)
-    if market_snapshot:
-        snapshot = dict(market_snapshot)
-        trade_date = snapshot.get("trade_date")
-        if hasattr(trade_date, "isoformat"):
-            snapshot["trade_date"] = trade_date.isoformat()
-        meta["market_snapshot"] = snapshot
-
-    # 策略门控
-    if build_gate_entries_func:
-        gate_entries = build_gate_entries_func(result, lang)
-        if gate_entries:
-            meta["strategy_gates"] = [
-                {"text": text, "style": style} for text, style in gate_entries
-            ]
-
-    # 动量配置
-    momentum_payload = asdict(momentum_config)
-    momentum_payload["windows"] = list(momentum_payload["windows"])
-    if momentum_payload.get("weights") is not None:
-        momentum_payload["weights"] = list(momentum_payload["weights"])
-    meta["momentum_config"] = momentum_payload
-
-    # 收集预警
-    alerts = collect_alerts_func(result)
-
-    return {
-        "meta": meta,
-        "summary": summary_json,
-        "correlation": correlation_json,
-        "series": {
-            "momentum_scores": momentum_json,
-            "rank_history": rank_json,
-            "stability_scores": stability_json,
-        },
-        "alerts": alerts,
-    }
