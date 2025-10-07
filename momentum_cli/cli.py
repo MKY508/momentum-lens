@@ -667,55 +667,29 @@ def _detect_rank_drop_alerts(result, weeks: int = _MOMENTUM_ALERT_WEEKS, min_dro
     return alerts
 
 
+# Moved to business.alerts
+from .business import detect_high_correlation_pairs as _business_detect_high_correlation_pairs
+from .business import collect_alerts as _business_collect_alerts
+
 def _detect_high_correlation_pairs(
     corr: pd.DataFrame,
     threshold: float | None = None,
     max_pairs: int = _MAX_CORRELATION_ALERTS,
 ) -> List[dict]:
-    if corr.empty:
-        return []
     if threshold is None:
         threshold = _CORRELATION_ALERT_THRESHOLD
-    matrix = corr.to_numpy(dtype=float)
-    n = matrix.shape[0]
-    if n < 2:
-        return []
-    rows, cols = np.triu_indices(n, k=1)
-    values = matrix[rows, cols]
-    mask = np.isfinite(values) & (values >= threshold)
-    if not mask.any():
-        return []
-    rows = rows[mask]
-    cols = cols[mask]
-    values = values[mask]
-    order = np.argsort(values)[::-1]
-    columns = list(corr.columns)
-    alerts: List[dict] = []
-    for idx in order[:max_pairs]:
-        i = rows[idx]
-        j = cols[idx]
-        value = float(values[idx])
-        code_a = columns[i]
-        code_b = columns[j]
-        alerts.append(
-            {
-                "code_a": code_a,
-                "label_a": _format_label(code_a),
-                "code_b": code_b,
-                "label_b": _format_label(code_b),
-                "value": round(value, 4),
-            }
-        )
-    return alerts
+    return _business_detect_high_correlation_pairs(
+        corr, threshold=threshold, max_pairs=max_pairs, format_label_func=_format_label
+    )
 
 
 def _collect_alerts(result) -> dict:
-    return {
-        "momentum_rank_drops": _detect_rank_drop_alerts(result),
-        "high_correlation_pairs": _detect_high_correlation_pairs(
-            result.correlation, max_pairs=_MAX_CORRELATION_ALERTS
-        ),
-    }
+    return _business_collect_alerts(
+        result,
+        correlation_threshold=_CORRELATION_ALERT_THRESHOLD,
+        max_correlation_pairs=_MAX_CORRELATION_ALERTS,
+        format_label_func=_format_label,
+    )
 
 
 # 迁移至 utils.formatters

@@ -28,6 +28,11 @@ from .history import (
     MAX_REPORT_HISTORY,
     TIMESTAMP_FMT,
 )
+from .alerts import (
+    detect_high_correlation_pairs,
+    detect_rank_drop_alerts,
+    collect_alerts,
+)
 
 __all__ = [
     # Reports
@@ -52,4 +57,8 @@ __all__ = [
     "clear_history",
     "MAX_REPORT_HISTORY",
     "TIMESTAMP_FMT",
+    # Alerts
+    "detect_high_correlation_pairs",
+    "detect_rank_drop_alerts",
+    "collect_alerts",
 ]
