@@ -34,6 +34,19 @@ def _show_best_strategy_guide():
         _wait_for_ack()
         return
 
+    # 尝试用less/more打开，如果失败则直接打印
+    try:
+        if sys.platform != "win32":
+            subprocess.run(["less", str(guide_path)])
+        else:
+            subprocess.run(["more", str(guide_path)], shell=True)
+    except Exception:
+        # 回退：直接打印内容
+        with open(guide_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        print(content)
+        _wait_for_ack()
+
 
 def _run_core_satellite_enhanced(current_state: dict):
     """运行核心-卫星增强回测（含止损/再平衡/防御）"""
@@ -124,20 +137,6 @@ def _run_core_satellite_enhanced(current_state: dict):
         defense_ma_window=defense_ma,
         defense_satellite_allocation=defense_sat_alloc,
     )
-
-
-    # 尝试用less/more打开，如果失败则直接打印
-    try:
-        if sys.platform != "win32":
-            subprocess.run(["less", str(guide_path)])
-        else:
-            subprocess.run(["more", str(guide_path)], shell=True)
-    except Exception:
-        # 回退：直接打印内容
-        with open(guide_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        print(content)
-        _wait_for_ack()
 
 
 
