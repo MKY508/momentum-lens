@@ -3623,6 +3623,279 @@ def _run_simple_backtest(
         observation_period=observation_period,
     )
 
+from .business.experimental import run_experimental_momentum_backtest as _biz_run_experimental_momentum
+
+def _run_experimental_scientific_momentum(last_state: Optional[dict] = None) -> None:
+    """实验性功能菜单：科学动量回测 + 参数优化"""
+    while True:
+        options = [
+            {"key": "1", "label": "科学动量回测（8种预设可选）"},
+            {"key": "2", "label": "参数优化实验 - 阶段1：粗筛（~2分钟）"},
+            {"key": "3", "label": "参数优化实验 - 阶段2：精调（~15分钟）"},
+            {"key": "4", "label": "参数优化实验 - 完整流程（~20分钟）"},
+            {"key": "5", "label": "查看优化结果"},
+            {"key": "0", "label": "返回上级菜单"},
+        ]
+        choice = _prompt_menu_choice(
+            options,
+            title="┌─ 实验性功能 ─" + "─" * 18,
+            header_lines=[""],
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
+            default_key="1",
+        )
+        
+        if choice == "1":
+            # 原有的科学动量回测
+            _run_scientific_momentum_single(last_state)
+            continue
+        elif choice == "2":
+            # 阶段1：粗筛
+            _run_batch_optimization(phase=1)
+            continue
+        elif choice == "3":
+            # 阶段2：精调
+            _run_batch_optimization(phase=2)
+            continue
+        elif choice == "4":
+            # 完整流程
+            _run_batch_optimization(phase=0)
+            continue
+        elif choice == "5":
+            # 查看结果
+            _show_optimization_results()
+            continue
+        elif choice == "0":
+            break
+        else:
+            break
+
+
+def _run_scientific_momentum_single(last_state: Optional[dict] = None) -> None:
+    """原有的科学动量回测功能"""
+    from .business.experimental import EXPERIMENTAL_PRESETS
+
+    # Show preset menu
+    preset_keys = list(EXPERIMENTAL_PRESETS.keys())
+    print(colorize("[实验] 可用预设:", "heading"))
+    for i, key in enumerate(preset_keys, 1):
+        cfg = EXPERIMENTAL_PRESETS[key]
+        print(colorize(f"  {i}. {key} - {cfg.hint[:60]}{'...' if len(cfg.hint) > 60 else ''}", "menu_text"))
+    print(colorize("  0. 自定义参数", "menu_text"))
+
+    choice = _ui_prompt_text("[实验] 选择预设（1-8，0=自定义，默认1）", "1").strip()
+
+    if choice == "0":
+        # Custom config (original prompts)
+        try:
+            top_n = int(_ui_prompt_text("[实验] TopN（默认 2）", "2") or 2)
+        except Exception:
+            top_n = 2
+        try:
+            min_pct = float(_ui_prompt_text("[实验] 动量分位阈值（0-1，默认 0.60）", "0.60") or 0.60)
+        except Exception:
+            min_pct = 0.60
+        try:
+            max_corr = float(_ui_prompt_text("[实验] 最大相关性（默认 0.85）", "0.85") or 0.85)
+        except Exception:
+            max_corr = 0.85
+        try:
+            corr_win = int(_ui_prompt_text("[实验] 相关性窗口（交易日，默认 120）", "120") or 120)
+        except Exception:
+            corr_win = 120
+        try:
+            trend_win = int(_ui_prompt_text("[实验] 趋势斜率窗口（交易日，默认 180）", "180") or 180)
+        except Exception:
+            trend_win = 180
+
+        from .business.experimental import ExperimentalConfig as _ExpCfg
+        cfg = _ExpCfg(top_n=top_n, min_percentile=min_pct, max_correlation=max_corr, corr_window=corr_win, trend_window=trend_win)
+    else:
+        # Use preset
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(preset_keys):
+                preset_name = preset_keys[idx]
+                cfg = EXPERIMENTAL_PRESETS[preset_name]
+                print(colorize(f"[实验] 已选择预设: {preset_name}", "value_positive"))
+            else:
+                cfg = EXPERIMENTAL_PRESETS[preset_keys[0]]  # fallback to first
+                print(colorize(f"[实验] 无效选择，使用默认预设: {preset_keys[0]}", "warning"))
+        except Exception:
+            cfg = EXPERIMENTAL_PRESETS[preset_keys[0]]  # fallback to first
+            print(colorize(f"[实验] 解析错误，使用默认预设: {preset_keys[0]}", "warning"))
+
+    return _biz_run_experimental_momentum(
+        obtain_context_func=_obtain_backtest_context,
+        format_label_func=_format_label,
+        colorize_func=colorize,
+        render_table_func=_render_backtest_table,
+        wait_for_ack_func=_wait_for_ack,
+        last_state=last_state,
+        config=cfg,
+    )
+
+
+def _run_batch_optimization(phase: int = 0) -> None:
+    """
+    运行批量参数优化实验
+    
+    Args:
+        phase: 0=完整流程, 1=仅粗筛, 2=仅精调
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    script_path = Path(__file__).parent.parent / "scripts" / "experiments" / "batch_backtest.py"
+    
+    if not script_path.exists():
+        print(colorize("❌ 错误：未找到批量回测脚本", "danger"))
+        print(colorize(f"   期望路径: {script_path}", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    print(colorize("\n" + "="*60, "heading"))
+    if phase == 0:
+        print(colorize("参数优化实验 - 完整流程", "heading"))
+        print(colorize("  阶段1：粗筛（4个策略 × 固定参数）", "menu_text"))
+        print(colorize("  阶段2：精调（Top3 × 54种参数组合）", "menu_text"))
+        print(colorize("  预计耗时：~20分钟", "warning"))
+    elif phase == 1:
+        print(colorize("参数优化实验 - 阶段1：粗筛", "heading"))
+        print(colorize("  测试4个策略，固定参数配置", "menu_text"))
+        print(colorize("  预计耗时：~2分钟", "menu_text"))
+    else:
+        print(colorize("参数优化实验 - 阶段2：精调", "heading"))
+        print(colorize("  基于阶段1结果，精细化参数搜索", "menu_text"))
+        print(colorize("  预计耗时：~15分钟", "warning"))
+    print(colorize("="*60, "heading"))
+    
+    confirm = _prompt_yes_no("\n确认开始实验？", True)
+    if not confirm:
+        print(colorize("已取消。", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    print(colorize("\n实验运行中，请耐心等待...\n", "value_positive"))
+    
+    # 构建命令
+    python_exe = sys.executable
+    if phase == 0:
+        cmd = [python_exe, str(script_path), "--full"]
+    elif phase == 1:
+        cmd = [python_exe, str(script_path), "--phase", "1"]
+    else:
+        cmd = [python_exe, str(script_path), "--phase", "2"]
+    
+    try:
+        # 运行脚本并实时显示输出
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        for line in process.stdout:
+            print(line, end='')
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            print(colorize("\n✓ 实验完成！", "value_positive"))
+        else:
+            print(colorize(f"\n❌ 实验失败（退出码: {process.returncode}）", "danger"))
+    
+    except Exception as e:
+        print(colorize(f"\n❌ 执行错误: {str(e)}", "danger"))
+    
+    _wait_for_ack()
+
+
+def _show_optimization_results() -> None:
+    """查看优化实验结果"""
+    from pathlib import Path
+    import pandas as pd
+    
+    results_dir = Path("results")
+    
+    if not results_dir.exists():
+        print(colorize("❌ 未找到结果目录", "danger"))
+        print(colorize("   请先运行参数优化实验", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    # 查找最新的结果文件
+    phase1_files = sorted(results_dir.glob("phase1_coarse_*.csv"))
+    phase2_files = sorted(results_dir.glob("phase2_fine_*.csv"))
+    
+    if not phase1_files and not phase2_files:
+        print(colorize("❌ 未找到实验结果文件", "danger"))
+        print(colorize("   请先运行参数优化实验", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    print(colorize("\n" + "="*60, "heading"))
+    print(colorize("实验结果汇总", "heading"))
+    print(colorize("="*60, "heading"))
+    
+    # 显示阶段1结果
+    if phase1_files:
+        latest_phase1 = phase1_files[-1]
+        print(colorize(f"\n阶段1结果文件: {latest_phase1.name}", "menu_text"))
+        try:
+            df1 = pd.read_csv(latest_phase1)
+            print(colorize("\n策略粗筛排名（训练期夏普）：", "heading"))
+            display_cols = ["strategy", "sharpe_ratio", "annualized_return", "max_drawdown"]
+            for col in display_cols:
+                if col not in df1.columns:
+                    display_cols.remove(col)
+            print(df1[display_cols].head(10).to_string(index=False))
+        except Exception as e:
+            print(colorize(f"读取失败: {str(e)}", "warning"))
+    
+    # 显示阶段2结果
+    if phase2_files:
+        latest_phase2 = phase2_files[-1]
+        print(colorize(f"\n阶段2结果文件: {latest_phase2.name}", "menu_text"))
+        try:
+            df2 = pd.read_csv(latest_phase2)
+            print(colorize("\n最优配置（Top 10）：", "heading"))
+            display_cols = [
+                "strategy", "frequency", "top_n", "observation_period",
+                "sharpe_test", "maxdd_test", "turnover", "score"
+            ]
+            for col in display_cols:
+                if col not in df2.columns:
+                    display_cols.remove(col)
+            print(df2[display_cols].head(10).to_string(index=False))
+            
+            # 显示最优配置详情
+            if not df2.empty:
+                best = df2.iloc[0]
+                print(colorize("\n" + "="*60, "heading"))
+                print(colorize("🏆 推荐配置", "heading"))
+                print(colorize("="*60, "heading"))
+                print(colorize(f"策略: {best['strategy']}", "menu_text"))
+                print(colorize(f"调仓频率: {best['frequency']}", "menu_text"))
+                print(colorize(f"持仓数量: {int(best['top_n'])}", "menu_text"))
+                print(colorize(f"观察期: {int(best['observation_period'])}个月", "menu_text"))
+                if 'correlation_threshold' in best:
+                    print(colorize(f"相关性阈值: {best['correlation_threshold']:.2f}", "menu_text"))
+                print()
+                print(colorize(f"测试期夏普: {best['sharpe_test']:.2f}", "value_positive"))
+                if 'return_test' in best:
+                    print(colorize(f"测试期年化收益: {best['return_test']:.2%}", "value_positive"))
+                print(colorize(f"最大回撤: {best['maxdd_test']:.2%}", "danger"))
+                if 'turnover' in best:
+                    print(colorize(f"年化换手率: {best['turnover']:.2f}", "menu_text"))
+                print(colorize(f"综合得分: {best['score']:.4f}", "accent"))
+        except Exception as e:
+            print(colorize(f"读取失败: {str(e)}", "warning"))
+    
+    _wait_for_ack()
+
 
 #   business.backtest
 from .business.backtest import core_satellite_portfolio_returns as _core_satellite_portfolio_returns

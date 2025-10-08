@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+import os
 
 import matplotlib
 
@@ -489,7 +490,8 @@ def analyze(config: AnalysisConfig) -> AnalysisResult:
     correlation_df = returns_df.tail(corr_window).corr().round(3)
 
     plot_paths: List[Path] = []
-    if config.make_plots:
+    make_plots = bool(config.make_plots) and os.getenv("MOMENTUM_FAST", "").lower() not in {"1", "true", "yes", "on"}
+    if make_plots:
         output_dir = _ensure_output_dir(config.output_dir)
         plot_paths.extend(_make_plots(output_dir, momentum_df, rank_df, trend_values))
 

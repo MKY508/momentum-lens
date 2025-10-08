@@ -402,6 +402,60 @@ def run_core_satellite_multi_backtest(
         rows_for_table.append(row)
         last_holdings = detail.get("last_weights", {})
 
+    # 额外增加：近1个月（上一个完整自然月，不含当前未完整月份）
+    try:
+        prev_month_end = (end_date - pd.offsets.MonthBegin(1)) - pd.Timedelta(days=1)
+        prev_month_start = (prev_month_end.replace(day=1))
+        mask_month = (close_df.index >= prev_month_start) & (close_df.index <= prev_month_end)
+        close_slice = close_df.loc[mask_month]
+        if not close_slice.empty:
+            momentum_slice = momentum_df.reindex(close_slice.index).ffill()
+            portfolio_returns, detail = core_satellite_returns_func(
+                close_slice,
+                momentum_slice,
+                core_available,
+                satellite_available,
+                core_allocation=0.6,
+                satellite_allocation=0.4,
+                top_n=2,
+            )
+            metrics = calc_metrics_func(portfolio_returns)
+            if metrics["days"] > 0:
+                def _fmt_pct(x: float, digits=2):
+                    import numpy as _np
+                    return "-" if _np.isnan(x) else f"{x:.{digits}%}"
+                def _fmt_num(x):
+                    import numpy as _np
+                    return "-" if _np.isnan(x) else f"{x:.2f}"
+                row = {
+                    "label": "近1个月",
+                    "start": str(close_slice.index.min().date()),
+                    "end": str(close_slice.index.max().date()),
+                    "days": str(metrics["days"]),
+                    "total": _fmt_pct(metrics["total_return"]),
+                    "annual": _fmt_pct(metrics["annualized"]),
+                    "vol": _fmt_pct(metrics["volatility"]),
+                    "maxdd": _fmt_pct(metrics["max_drawdown"]),
+                    "sharpe": _fmt_num(metrics["sharpe"]),
+                    "note": "",
+                }
+                import numpy as _np
+                if not _np.isnan(metrics["total_return"]):
+                    if metrics["total_return"] >= 0:
+                        row["style_total"] = "value_positive"
+                        row["style_annual"] = "value_positive"
+                    else:
+                        row["style_total"] = "value_negative"
+                        row["style_annual"] = "value_negative"
+                if not _np.isnan(metrics["max_drawdown"]):
+                    row["style_maxdd"] = "value_negative" if metrics["max_drawdown"] < 0 else "value_positive"
+                if not _np.isnan(metrics["sharpe"]):
+                    row["style_sharpe"] = "accent" if metrics["sharpe"] > 0 else "warning"
+                rows_for_table.append(row)
+                last_holdings = detail.get("last_weights", {})
+    except Exception:
+        pass
+
     print(colorize_func("\n=== 核心-卫星多区间回测 ===", "heading"))
     print(colorize_func("策略假设：核心仓 60% 等权持有核心券池全部标的；卫星仓 40% 择优持有卫星券池中动量得分排名前二，每月调仓。", "menu_hint"))
     print(colorize_func(f"核心仓标的数: {len(core_available)} | 卫星仓候选: {len(satellite_available)}", "menu_text"))
@@ -658,6 +712,7 @@ def run_core_satellite_custom_backtest(
             if market_close is not None and ma200 is not None:
                 if not pd.isna(market_close.loc[date]) and not pd.isna(ma200.loc[date]):
                     above_ma = bool(market_close.loc[date] > ma200.loc[date])
+
             if chop_series is not None and not pd.isna(chop_series.loc[date]):
                 in_trend = chop_series.loc[date] < float(chop_threshold)
             else:
@@ -746,6 +801,48 @@ def run_core_satellite_custom_backtest(
         rows.append(row)
 
     print(colorize_func("\n=== 核心-卫星（自定义）多区间回测 ===", "heading"))
+    # 额外增加：近1个月（上一个完整自然月，不含当前未完整月份）
+    try:
+        prev_month_end = (end_date - pd.offsets.MonthBegin(1)) - pd.Timedelta(days=1)
+        prev_month_start = (prev_month_end.replace(day=1))
+        mask_month = (close_df.index >= prev_month_start) & (close_df.index <= prev_month_end)
+        slice_returns = portfolio_returns.loc[mask_month]
+        metrics = calculate_performance_metrics(slice_returns)
+        if metrics["days"] > 0:
+            def _fmt_pct(x: float, digits=2):
+                import numpy as _np
+                return "-" if _np.isnan(x) else f"{x:.{digits}%}"
+            def _fmt_num(x):
+                import numpy as _np
+                return "-" if _np.isnan(x) else f"{x:.2f}"
+            row = {
+                "label": "近1个月",
+                "start": str(slice_returns.index.min().date()),
+                "end": str(slice_returns.index.max().date()),
+                "days": str(metrics["days"]),
+                "total": _fmt_pct(metrics["total_return"]),
+                "annual": _fmt_pct(metrics["annualized"]),
+                "vol": _fmt_pct(metrics["volatility"]),
+                "maxdd": _fmt_pct(metrics["max_drawdown"]),
+                "sharpe": _fmt_num(metrics["sharpe"]),
+                "note": "",
+            }
+            import numpy as _np
+            if not _np.isnan(metrics["total_return"]):
+                if metrics["total_return"] >= 0:
+                    row["style_total"] = "value_positive"
+                    row["style_annual"] = "value_positive"
+                else:
+                    row["style_total"] = "value_negative"
+                    row["style_annual"] = "value_negative"
+            if not _np.isnan(metrics["max_drawdown"]):
+                row["style_maxdd"] = "value_negative" if metrics["max_drawdown"] < 0 else "value_positive"
+            if not _np.isnan(metrics["sharpe"]):
+                row["style_sharpe"] = "accent" if metrics["sharpe"] > 0 else "warning"
+            rows.append(row)
+    except Exception:
+        pass
+
     print(colorize_func("策略：核心 60% 等权；趋势时卫星 40% 择优 2 条腿；防守时卫星 15% 择优 1 条腿；未用部分留现金。", "menu_hint"))
     print(colorize_func(f"核心仓标的数: {len(core_set)} | 卫星仓候选: {len(sat_set)}", "menu_text"))
     print(render_table_func(rows))
