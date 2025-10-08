@@ -1867,6 +1867,103 @@ def _render_text_report(
             f"参数: Corr {config.corr_window} / Chop {config.chop_window} / 趋势 {config.trend_window} / 回溯 {config.rank_change_lookback}",
             "menu_hint",
         )
+        # 建议持仓（基于当前简易回测规则的当期持仓预览）
+        try:
+            from .business.backtest import select_assets_with_constraints as _suggest_select
+            # 准备当期数据（对齐动量与价格的最新有效日期）
+            close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()}).sort_index().dropna(how="all")
+            momentum_df = result.momentum_scores
+            common_dates = close_df.index.intersection(momentum_df.index)
+            if len(common_dates) > 0:
+                latest = common_dates[-1]
+                scores = momentum_df.loc[latest].dropna()
+                # 使用最新快照中的“动量分位数”（单值），按代码对齐
+                percentiles = None
+                if result.summary is not None and not result.summary.empty and "momentum_percentile" in result.summary.columns:
+                    percentiles = result.summary.set_index("etf")["momentum_percentile"].reindex(scores.index)
+                # 相关性矩阵兼容
+                corr = getattr(result, "correlation_matrix", None)
+                if corr is None:
+                    corr = getattr(result, "correlation", None)
+                # 规则：Top2 等权，阈值≥60%，相关性过滤启用；若筛不出，退回简单 TopN
+                top_n_preview = 2
+                min_pct = 0.6
+                selected: list[str] = []
+                if percentiles is not None:
+                    selected, _ = _suggest_select(
+                        scores,
+                        percentiles,
+                        corr,
+                        top_n_preview,
+                        min_percentile=min_pct,
+                        max_correlation=0.85,
+                    )
+                if not selected:
+                    selected = scores.sort_values(ascending=False).head(top_n_preview).index.tolist()
+                # 仅保留存在于价格列中的代码
+                selected = [c for c in selected if c in close_df.columns]
+                # 输出：核心底座 + 卫星（当期）
+                # 市场状态与卫星腿数
+                market_code = "510300.XSHG" if "510300.XSHG" in close_df.columns else None
+                above_ma = False
+                in_trend = False
+                if market_code is not None:
+                    ma200_series = close_df[market_code].rolling(window=200, min_periods=1).mean()
+                    above_ma = bool(close_df[market_code].loc[latest] > ma200_series.loc[latest]) if latest in close_df.index else False
+                    chop_dict = getattr(result, "chop", None)
+                    if chop_dict and market_code in chop_dict:
+                        chop_series = chop_dict[market_code]
+                        if latest in chop_series.index:
+                            in_trend = chop_series.loc[latest] < 38.0
+                        else:
+                            in_trend = above_ma
+                    else:
+                        in_trend = above_ma
+                sat_top_n = 2 if (above_ma and in_trend) else 1
+                sat_weight = 0.20 if sat_top_n == 2 else 0.15
+
+                if lang == "zh":
+                    add("=== 建议持仓（当期） ===", "heading")
+                    add("核心底座（长期底座，低波+低成本，总计60%）:", "menu_hint")
+                else:
+                    add("=== Suggested Holdings (Current) ===", "heading")
+                    add("Core base (low vol + low cost, total 60%):", "menu_hint")
+                core_map_disp = {
+                    "510300.XSHG": 0.20,
+                    "510880.XSHG": 0.10,
+                    "511360.XSHG": 0.15,
+                    "518880.XSHG": 0.10,
+                    "513500.XSHG": 0.05,
+                }
+                core_parts = []
+                for code, w in core_map_disp.items():
+                    if code in close_df.columns:
+                        core_parts.append(f"{_format_label(code)} ({code}): {w:.1%}")
+                if core_parts:
+                    add("; ".join(core_parts), "menu_text")
+                else:
+                    add("（当前券池未包含核心底座标的）" if lang == "zh" else "(No core base instruments in current universe)", "warning")
+
+                if lang == "zh":
+                    add("卫星（当期）:", "menu_hint")
+                else:
+                    add("Satellites (current):", "menu_hint")
+                # 根据市场状态调整卫星腿数与权重
+                top_n_now = sat_top_n
+                if selected:
+                    sel_now = selected[:top_n_now]
+                    if sel_now:
+                        parts = [f"{_format_label(code)} ({code}): {sat_weight:.1%}" for code in sel_now]
+                        add("; ".join(parts), "menu_text")
+                    else:
+                        add("无符合条件的持仓候选（已退回简单TopN仍为空）" if lang == "zh" else "No eligible holdings (even after TopN fallback).", "warning")
+                else:
+                    add("无符合条件的持仓候选（已退回简单TopN仍为空）" if lang == "zh" else "No eligible holdings (even after TopN fallback).", "warning")
+                add("", None)
+        except Exception:
+            # 建议持仓不是关键路径，任何异常忽略
+            pass
+
         add("", None)
         render_strategy_gates()
         add("=== 动量汇总 ===", "heading")
@@ -2604,6 +2701,8 @@ def _export_rqalpha_strategy(
     start_date: Optional[str],
     end_date: Optional[str],
     label: str,
+    stability_weight: float = 0.2,
+    stability_window: int = 30,
 ) -> Path:
     clean_universe = sorted({code.upper() for code in universe if code})
     if not clean_universe:
@@ -2655,6 +2754,8 @@ MOMENTUM_WINDOWS = {windows_repr}
 MOMENTUM_WEIGHTS = {weights_repr}
 TOP_N = {capped_top}
 MAX_WINDOW = {max_window}
+STABILITY_WEIGHT = {stability_weight}  # 稳定度权重，降低追高风险
+STABILITY_WINDOW = {stability_window}  # 稳定度观察窗口（交易日）
 
 __config__ = {{
     "base": {{
@@ -2676,9 +2777,13 @@ def init(context):
     context.weights = list(MOMENTUM_WEIGHTS)
     context.top_n = TOP_N
     context.max_window = MAX_WINDOW
+    context.stability_weight = STABILITY_WEIGHT
+    context.stability_window = STABILITY_WINDOW
+    context.rank_history = []  # 用于跟踪排名历史，计算稳定度
     update_universe(context.etfs)
     {schedule_line}
-    logger.info("Initialized with %d ETFs and top_n=%d", len(context.etfs), context.top_n)
+    logger.info("Initialized with %d ETFs, top_n=%d, stability_weight=%.2f",
+                len(context.etfs), context.top_n, context.stability_weight)
 
 
 def _compute_momentum(context, code):
@@ -2697,13 +2802,50 @@ def _compute_momentum(context, code):
 
 
 def rebalance(context, bar_dict):
+    # 1. 计算原始动量得分
     scored = []
     for code in context.etfs:
         score = _compute_momentum(context, code)
         if score is not None:
             scored.append((code, score))
+
+    if not scored:
+        logger.warning("Momentum screen empty; no positions taken.")
+        return
+
+    # 2. 记录当前排名（用于稳定度计算）
     scored.sort(key=lambda item: item[1], reverse=True)
-    targets = [code for code, _ in scored[: context.top_n]]
+    current_ranks = {{code: rank + 1 for rank, (code, _) in enumerate(scored)}}
+    context.rank_history.append(current_ranks)
+
+    # 保持稳定度窗口大小
+    if len(context.rank_history) > context.stability_window:
+        context.rank_history.pop(0)
+
+    # 3. 计算稳定度得分并调整动量
+    if context.stability_weight > 0 and len(context.rank_history) >= 2:
+        adjusted_scores = []
+        for code, mom_score in scored:
+            # 计算该标的在历史窗口内出现在前10的频率
+            appearances_in_top10 = sum(
+                1 for ranks in context.rank_history
+                if code in ranks and ranks[code] <= 10
+            )
+            stability = appearances_in_top10 / len(context.rank_history)
+
+            # 应用稳定度权重调整
+            factor = (1.0 - context.stability_weight) + context.stability_weight * stability
+            adjusted_score = mom_score * factor
+            adjusted_scores.append((code, adjusted_score))
+
+        # 使用调整后的得分重新排序
+        adjusted_scores.sort(key=lambda item: item[1], reverse=True)
+        targets = [code for code, _ in adjusted_scores[: context.top_n]]
+    else:
+        # 不使用稳定度调整
+        targets = [code for code, _ in scored[: context.top_n]]
+
+    # 4. 执行调仓
     current = set(context.portfolio.positions.keys())
     target_set = set(targets)
 
@@ -2711,7 +2853,7 @@ def rebalance(context, bar_dict):
         order_target_percent(code, 0)
 
     if not targets:
-        logger.warning("Momentum screen empty; no positions taken.")
+        logger.warning("No targets after stability adjustment.")
         return
 
     weight = 1.0 / len(targets)
@@ -3388,43 +3530,15 @@ def _get_core_satellite_codes() -> tuple[List[str], List[str]]:
 
 
 def _choose_backtest_analysis_preset() -> AnalysisPreset:
-    if "slow-core" in ANALYSIS_PRESETS:
-        return ANALYSIS_PRESETS["slow-core"]
-    if ANALYSIS_PRESETS:
-        return next(iter(ANALYSIS_PRESETS.values()))
-    return AnalysisPreset(
-        key="auto",
-        name="自动预设",
-        description="自动生成的回测分析参数",
-        momentum_windows=(60, 120),
-        momentum_weights=(0.6, 0.4),
-        corr_window=60,
-        chop_window=14,
-        trend_window=90,
-        rank_lookback=5,
-    )
+    """交互式选择回测分析预设"""
+    return _choose_analysis_preset_interactively()
 
 
 def _obtain_backtest_context(
     last_state: Optional[dict], *, allow_reuse: bool = True
 ) -> Optional[dict]:
-    global _LAST_BACKTEST_CONTEXT
-    if _LAST_BACKTEST_CONTEXT:
-        if _prompt_yes_no("复用最近一次回测加载的数据？", True):
-            return _LAST_BACKTEST_CONTEXT
-    if allow_reuse and last_state:
-        if {"result", "config", "momentum_config"}.issubset(last_state.keys()):
-            if _prompt_yes_no("复用最近一次分析结果用于回测？", True):
-                context = {
-                    "result": last_state["result"],
-                    "config": last_state["config"],
-                    "momentum_config": last_state["momentum_config"],
-                    "preset": last_state.get("preset"),
-                }
-                _LAST_BACKTEST_CONTEXT = context
-                return context
-        else:
-            print(colorize("最近一次分析缺少所需数据，无法直接复用。", "warning"))
+    # 应用户要求：取消复用提示，默认不复用最近一次分析/回测的数据
+    # 直接进入新一次数据加载与参数选择流程
     core_codes, satellite_codes = _get_core_satellite_codes()
     if not core_codes and not satellite_codes:
         print(colorize("请先在券池预设中配置 core 与 satellite，再运行回测。", "warning"))
@@ -3493,8 +3607,21 @@ def _obtain_backtest_context(
 # Moved to business.backtest (63 lines)
 from .business.backtest import run_simple_backtest as _biz_run_simple_backtest
 
-def _run_simple_backtest(result, preset: AnalysisPreset, top_n: int = 2) -> None:
-    _biz_run_simple_backtest(result, preset, top_n)
+def _run_simple_backtest(
+    result,
+    preset: AnalysisPreset,
+    top_n: int = 2,
+    *,
+    frequency: str = "monthly",
+    observation_period: int = 0,
+) -> None:
+    _biz_run_simple_backtest(
+        result,
+        preset,
+        top_n,
+        frequency=frequency,
+        observation_period=observation_period,
+    )
 
 
 #   business.backtest
@@ -3526,6 +3653,70 @@ def _render_backtest_table(rows: List[dict]) -> str:
 
 # Moved to business.backtest (approx 120 lines)
 from .business.backtest import run_core_satellite_multi_backtest as _biz_run_core_satellite
+from .business.backtest import run_core_satellite_custom_backtest as _biz_run_core_satellite_custom
+
+
+def _run_core_satellite_custom_backtest(last_state: Optional[dict] = None) -> None:
+    # 交互式获取自定义参数（有默认值）
+    def _as_float(s: str, default: float) -> float:
+        try:
+            return float(s)
+        except Exception:
+            return default
+    def _as_int(s: str, default: int) -> int:
+        try:
+            return int(s)
+        except Exception:
+            return default
+
+    mode = _ui_prompt_text("模式（core+sat/core/sat，默认 core+sat）", "core+sat").strip().lower() or "core+sat"
+
+    # 按模式分支：纯核心/纯卫星不涉及 CHOP/MA 动态防守
+    if mode == "core+sat":
+        chop_threshold = _as_float(_ui_prompt_text("CHOP阈值（默认 38.0）", "38.0"), 38.0)
+        ma_window = _as_int(_ui_prompt_text("MA窗口（默认 200）", "200"), 200)
+        sat_trend_alloc = _as_float(_ui_prompt_text("趋势期卫星仓配置（比例，默认 0.40）", "0.40"), 0.40)
+        sat_def_alloc = _as_float(_ui_prompt_text("防守期卫星仓配置（比例，默认 0.15）", "0.15"), 0.15)
+        top_n_trend = _as_int(_ui_prompt_text("趋势期卫星腿数 TopN（默认 2）", "2"), 2)
+        top_n_def = _as_int(_ui_prompt_text("防守期卫星腿数 TopN（默认 1）", "1"), 1)
+        dynamic_defense = _ui_prompt_yes_no("启用动态防守（CHOP/MA200），默认是？", True)
+        if not dynamic_defense:
+            sat_def_alloc = sat_trend_alloc
+            top_n_def = top_n_trend
+    elif mode == "sat":
+        # 纯卫星：始终使用趋势期设定，忽略 CHOP/MA
+        chop_threshold = 38.0
+        ma_window = 200
+        sat_trend_alloc = _as_float(_ui_prompt_text("卫星仓配置（比例，默认 0.40）", "0.40"), 0.40)
+        top_n_trend = _as_int(_ui_prompt_text("卫星腿数 TopN（默认 2）", "2"), 2)
+        sat_def_alloc = sat_trend_alloc
+        top_n_def = top_n_trend
+    else:  # core 模式
+        chop_threshold = 38.0
+        ma_window = 200
+        sat_trend_alloc = 0.0
+        sat_def_alloc = 0.0
+        top_n_trend = 0
+        top_n_def = 0
+
+    return _biz_run_core_satellite_custom(
+        obtain_context_func=_obtain_backtest_context,
+        get_core_satellite_codes_func=_get_core_satellite_codes,
+        format_label_func=_format_label,
+        colorize_func=colorize,
+        render_table_func=_render_backtest_table,
+        wait_for_ack_func=_wait_for_ack,
+        last_state=last_state,
+        mode=mode,
+        chop_threshold=chop_threshold,
+        ma_window=ma_window,
+        sat_allocation_trend=sat_trend_alloc,
+        sat_allocation_defense=sat_def_alloc,
+        defense_to_cash=True,
+        top_n_trend=top_n_trend,
+        top_n_defense=top_n_def,
+    )
+
 
 def _run_core_satellite_multi_backtest(last_state: Optional[dict] = None) -> None:
     return _biz_run_core_satellite(
@@ -3587,7 +3778,22 @@ def _interactive_backtest(last_state: Optional[dict]) -> None:
     preset = _make_backtest_preset(context.get("preset"), config, context["momentum_config"])
     default_top = max(1, min(3, len(result.summary)))
     top_n = _prompt_int("回测持仓数量", default_top)
-    _run_simple_backtest(result, preset, top_n=top_n)
+
+    # 询问调仓频率与观察期
+    freq_raw = input(colorize("调仓频率（monthly/weekly/daily，默认 monthly）: ", "prompt")).strip().lower()
+    frequency = freq_raw or "monthly"
+    if frequency not in {"monthly", "weekly", "daily"}:
+        print(colorize("频率输入无效，已回退为 monthly。", "warning"))
+        frequency = "monthly"
+    observation_period = _prompt_int("观察期（连续掉队N个调仓周期才换仓，默认0=关闭）", 0)
+
+    _run_simple_backtest(
+        result,
+        preset,
+        top_n=top_n,
+        frequency=frequency,
+        observation_period=observation_period,
+    )
 
 
 def _interactive_export_strategy(state: dict) -> None:
@@ -3623,6 +3829,8 @@ def _interactive_export_strategy(state: dict) -> None:
             start_date=config.start_date,
             end_date=config.end_date,
             label=label,
+            stability_weight=config.stability_weight,
+            stability_window=config.stability_window,
         )
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"导出失败: {exc}", "danger"))
@@ -4024,7 +4232,7 @@ def run_interactive() -> int:
         _set_color_enabled(sys.stdout.isatty())
         banner_top = colorize("╔" + "═" * 34 + "╗", "border")
         mid_content = f" {APP_NAME} 交互模式 "
-        banner_mid = colorize("║" + mid_content.center(34) + "║", "title")
+        banner_mid = colorize("║" + _pad_display(mid_content, 34, "center") + "║", "title")
         banner_bot = colorize("╚" + "═" * 34 + "╝", "border")
         banner_lines = ["", banner_top, banner_mid, banner_bot, ""]
         last_state: dict | None = None
@@ -4106,9 +4314,98 @@ def run_interactive() -> int:
         _INTERACTIVE_MODE = False
 
 
+def _get_strategy_description(strategy_name: str) -> str:
+    """获取策略说明文档"""
+    descriptions = {
+        "慢腿轮动": """
+策略说明：核心+慢腿轮动（月度调仓）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：0.6×(3M-1M) + 0.4×(6M-1M)
+  • 稳定度调整：20%权重，降低追高风险
+  • 稳定度窗口：30个交易日
+  • 持仓数量：市场强势(沪深300>MA200)时2条腿×20%
+              市场弱势(沪深300<MA200)时1条腿×15%
+
+换仓规则：
+  • 检查频率：每月末最后一个交易日
+  • 选股方式：选择稳定度调整后动量得分最高的N只ETF
+  • 稳定度计算：标的在过去30日内出现在前10的频率
+
+止损规则：
+  • 强势市场(沪深300>MA200 且 ATR<4%)：-10%
+  • 正常市场(沪深300>MA200 且 ATR≥4%)：-12%
+  • 弱势市场(沪深300<MA200)：-15%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        "快腿轮动": """
+策略说明：核心+快腿轮动（周度调仓）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：20日收益率
+  • 持仓数量：市场强势2条腿×20%，弱势1条腿×15%
+
+换仓规则：
+  • 检查频率：每周五
+  • 选股方式：选择20日动量最高的N只ETF
+
+止损规则：
+  • 跌破20日最低价即止损
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        "宏观驱动": """
+策略说明：核心+宏观驱动（12M-1M长波动量）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：12M-1M长波动量
+  • 持仓数量：市场强势2条腿×20%，弱势1条腿×15%
+
+换仓规则：
+  • 检查频率：每月末最后一个交易日
+  • 选股方式：选择12M-1M动量最高的N只ETF
+
+止损规则：
+  • 强势市场：-10%
+  • 正常市场：-12%
+  • 弱势市场：-15%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        "改进慢腿轮动(观察期)": """
+策略说明：改进慢腿轮动（观察期机制）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：0.6×(3M-1M) + 0.4×(6M-1M)
+  • 稳定度调整：20%权重，降低追高风险
+  • 稳定度窗口：30个交易日
+  • 持仓数量：市场强势(沪深300>MA200)时2条腿×20%
+              市场弱势(沪深300<MA200)时1条腿×15%
+
+换仓规则：
+  • 检查频率：每周五（而非每月）
+  • 观察期机制：掉出前2后观察2周
+  • 换仓条件：连续2周排名<3，或触发止损
+  • 重新入选：观察期内重回前2，取消换仓
+  • 稳定度计算：标的在过去30日内出现在前10的频率
+
+止损规则：
+  • 强势市场(沪深300>MA200 且 ATR<4%)：-10%
+  • 正常市场(沪深300>MA200 且 ATR≥4%)：-12%
+  • 弱势市场(沪深300<MA200)：-15%
+  • 止损优先：触发止损立即卖出，无视观察期
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+    }
+    return descriptions.get(strategy_name, "")
+
+
 def _run_strategy_backtest_menu() -> None:
     """运行策略回测菜单"""
-    from .backtest import run_slow_leg_strategy, run_fast_leg_strategy, run_macro_driven_strategy
+    from .backtest import (
+        run_slow_leg_strategy,
+        run_fast_leg_strategy,
+        run_macro_driven_strategy,
+        run_improved_slow_leg_strategy
+    )
     from .analysis_presets import ANALYSIS_PRESETS
 
     print(colorize("\n" + "═" * 60, "border"))
@@ -4116,9 +4413,10 @@ def _run_strategy_backtest_menu() -> None:
     print(colorize("═" * 60 + "\n", "border"))
 
     options = [
-        {"key": "1", "label": "核心 + 慢腿轮动 (月度, 含风控)"},
+        {"key": "1", "label": "核心 + 慢腿轮动 (月度, 含稳定度)"},
         {"key": "2", "label": "核心 + 快腿轮动 (周度, 20日动量)"},
         {"key": "3", "label": "核心 + 宏观驱动 (12M-1M 长波)"},
+        {"key": "4", "label": "改进慢腿轮动 (观察期机制) ⭐推荐"},
         {"key": "0", "label": "返回上级菜单"},
     ]
 
@@ -4163,7 +4461,8 @@ def _run_strategy_backtest_menu() -> None:
     strategy_map = {
         "1": ("slow-core", run_slow_leg_strategy, "慢腿轮动"),
         "2": ("fast-rotation", run_fast_leg_strategy, "快腿轮动"),
-        "3": ("twelve-minus-one", run_macro_driven_strategy, "宏观驱动")
+        "3": ("twelve-minus-one", run_macro_driven_strategy, "宏观驱动"),
+        "4": ("slow-core", run_improved_slow_leg_strategy, "改进慢腿轮动(观察期)")
     }
 
     if choice not in strategy_map:
@@ -4183,7 +4482,10 @@ def _run_strategy_backtest_menu() -> None:
     momentum_params = {
         'momentum_windows': list(analysis_preset.momentum_windows),
         'momentum_weights': list(analysis_preset.momentum_weights) if analysis_preset.momentum_weights else None,
-        'momentum_skip_windows': list(analysis_preset.momentum_skip_windows) if analysis_preset.momentum_skip_windows else None
+        'momentum_skip_windows': list(analysis_preset.momentum_skip_windows) if analysis_preset.momentum_skip_windows else None,
+        'stability_weight': 0.2,  # 稳定度权重
+        'stability_window': 30,   # 稳定度窗口
+        'observation_weeks': 2    # 观察期周数（仅用于改进策略）
     }
 
     print(colorize(f"\n开始运行 {strategy_name} 策略回测...", "info"))
@@ -4198,6 +4500,11 @@ def _run_strategy_backtest_menu() -> None:
             end_date=end_date,
             momentum_params=momentum_params
         )
+
+        # 显示策略说明
+        strategy_desc = _get_strategy_description(strategy_name)
+        if strategy_desc:
+            print(colorize(strategy_desc, "dim"))
 
         # 显示回测结果
         print(colorize("\n" + "═" * 60, "border"))
