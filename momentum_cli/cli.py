@@ -14,7 +14,6 @@ import sys
 import shutil
 import textwrap
 import time
-import unicodedata
 import webbrowser
 from dataclasses import asdict
 from pathlib import Path
@@ -34,11 +33,6 @@ except ImportError:  # pragma: no cover - non-Windows
 
 import numpy as np
 import pandas as pd
-
-try:
-    from wcwidth import wcswidth as _wcwidth_wcswidth
-except ImportError:  # pragma: no cover - optional dependency
-    _wcwidth_wcswidth = None
 
 from .analysis import AnalysisConfig, analyze
 from .analysis_presets import (
@@ -60,9 +54,61 @@ from .presets import (
     reset_preset,
     upsert_preset,
 )
-
-
-SETTINGS_STORE_PATH = Path(__file__).resolve().parent / "cli_settings.json"
+from .utils.display import display_width as _display_width
+from .utils.display import pad_display as _pad_display
+from .utils.display import strip_ansi as _strip_ansi
+from .utils.parsers import extract_float as _extract_float
+from .utils.parsers import parse_bundle_version as _parse_bundle_version
+from .utils.parsers import try_parse_datetime as _try_parse_datetime
+# 导入颜色工具（渐进式迁移）
+from .utils.colors import (
+    colorize as _utils_colorize,
+    set_color_enabled as _utils_set_color_enabled,
+    apply_theme as _utils_apply_theme,
+    get_current_theme as _utils_get_current_theme,
+)
+# 导入UI工具（渐进式迁移）
+from .ui import (
+    prompt_menu_choice as _ui_prompt_menu_choice,
+    supports_interactive_menu as _ui_supports_interactive_menu,
+    format_menu_item as _ui_format_menu_item,
+    menu_hint as _ui_menu_hint,
+    prompt_yes_no as _ui_prompt_yes_no,
+    prompt_text as _ui_prompt_text,
+    prompt_positive_int as _ui_prompt_positive_int,
+    prompt_optional_date as _ui_prompt_optional_date,
+)
+# 导入业务逻辑工具（渐进式迁移）
+from .business import (
+    load_template_store as _business_load_template_store,
+    write_template_store as _business_write_template_store,
+    get_template as _business_get_template,
+    save_template as _business_save_template,
+    delete_template as _business_delete_template,
+    get_builtin_template_store as _business_get_builtin_template_store,
+    template_to_params as _business_template_to_params,
+    render_text_report as _business_render_text_report,
+    render_markdown_report as _business_render_markdown_report,
+)
+from .config.settings import (
+    DEFAULT_SETTINGS as _DEFAULT_SETTINGS,
+    SETTINGS_STORE_PATH,
+    load_cli_settings as _load_cli_settings,
+    save_cli_settings as _save_cli_settings,
+    update_setting as _update_setting,
+)
+from .config.validators import (
+    validate_corr_threshold as _validate_corr_threshold,
+    validate_float_range_setting as _validate_float_range_setting,
+    validate_positive_int_setting as _validate_positive_int_setting,
+    validate_ratio_setting as _validate_ratio_setting,
+)
+from .config.bundle import (
+    BUNDLE_ROOT as _BUNDLE_ROOT,
+    BUNDLE_VERSION_FILE as _BUNDLE_VERSION_FILE,
+    bundle_status as _bundle_status,
+    load_bundle_metadata as _load_bundle_metadata,
+)
 
 APP_NAME = "Momentum Lens"
 APP_VERSION = "0.9.0"
@@ -76,258 +122,15 @@ _KEYLOG_PATH = Path(
 )
 
 
-def _log_key_event(label: str, payload: str) -> None:
-    if not _KEYLOG_ENABLED:
-        return
-    try:
-        escaped = payload.encode("unicode_escape", errors="backslashreplace").decode("ascii")
-        with _KEYLOG_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(f"{time.time():.6f} {label}: {escaped}\n")
-    except OSError:
-        pass
+# 调试日志函数已移至 utils.debug 模块
+from .utils.debug import log_key_event as _log_key_event, log_key_result as _log_key_result
 
 
-def _log_key_result(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        _log_key_event("key", "<None>")
-    else:
-        _log_key_event("key", value)
-    return value
-
-
-_CLI_THEMES = {
-    "aurora": {
-        "reset": "\033[0m",
-        "title": "\033[1;96m",
-        "heading": "\033[1;94m",
-        "menu_number": "\033[1;36m",
-        "menu_text": "\033[36m",
-        "menu_disabled": "\033[90m",
-        "menu_bullet": "\033[1;94m",
-        "menu_hint": "\033[96m",
-        "prompt": "\033[1;35m",
-        "border": "\033[94m",
-        "divider": "\033[90m",
-        "info": "\033[36m",
-        "warning": "\033[1;33m",
-        "danger": "\033[31m",
-        "accent": "\033[32m",
-        "dim": "\033[2;37m",
-        "value_positive": "\033[32m",
-        "value_negative": "\033[31m",
-        "value_neutral": "\033[90m",
-        "rank_gold": "\033[1;33m",
-        "rank_silver": "\033[1;36m",
-        "rank_bronze": "\033[1;35m",
-        "header": "\033[1;96m",
-    },
-    "ember": {
-        "reset": "\033[0m",
-        "title": "\033[1;91m",
-        "heading": "\033[1;33m",
-        "menu_number": "\033[1;31m",
-        "menu_text": "\033[31m",
-        "menu_disabled": "\033[90m",
-        "menu_bullet": "\033[1;33m",
-        "menu_hint": "\033[95m",
-        "prompt": "\033[1;33m",
-        "border": "\033[33m",
-        "divider": "\033[90m",
-        "info": "\033[33m",
-        "warning": "\033[1;33m",
-        "danger": "\033[1;31m",
-        "accent": "\033[32m",
-        "dim": "\033[2;37m",
-        "value_positive": "\033[32m",
-        "value_negative": "\033[31m",
-        "value_neutral": "\033[90m",
-        "rank_gold": "\033[1;33m",
-        "rank_silver": "\033[1;37m",
-        "rank_bronze": "\033[1;35m",
-        "header": "\033[1;31m",
-    },
-    "evergreen": {
-        "reset": "\033[0m",
-        "title": "\033[1;92m",
-        "heading": "\033[32m",
-        "menu_number": "\033[1;32m",
-        "menu_text": "\033[32m",
-        "menu_disabled": "\033[90m",
-        "menu_bullet": "\033[1;32m",
-        "menu_hint": "\033[92m",
-        "prompt": "\033[1;32m",
-        "border": "\033[32m",
-        "divider": "\033[90m",
-        "info": "\033[32m",
-        "warning": "\033[1;33m",
-        "danger": "\033[31m",
-        "accent": "\033[36m",
-        "dim": "\033[2;37m",
-        "value_positive": "\033[32m",
-        "value_negative": "\033[31m",
-        "value_neutral": "\033[90m",
-        "rank_gold": "\033[1;33m",
-        "rank_silver": "\033[1;36m",
-        "rank_bronze": "\033[1;32m",
-        "header": "\033[1;32m",
-    },
-    "monet": {
-        "reset": "\033[0m",
-        "title": "\033[1;38;5;111m",
-        "heading": "\033[38;5;153m",
-        "menu_number": "\033[38;5;115m",
-        "menu_text": "\033[38;5;109m",
-        "menu_disabled": "\033[38;5;145m",
-        "menu_bullet": "\033[38;5;189m",
-        "menu_hint": "\033[38;5;151m",
-        "prompt": "\033[1;38;5;176m",
-        "border": "\033[38;5;152m",
-        "divider": "\033[38;5;188m",
-        "info": "\033[38;5;116m",
-        "warning": "\033[38;5;179m",
-        "danger": "\033[38;5;168m",
-        "accent": "\033[38;5;150m",
-        "dim": "\033[2;38;5;188m",
-        "value_positive": "\033[38;5;114m",
-        "value_negative": "\033[38;5;168m",
-        "value_neutral": "\033[38;5;145m",
-        "rank_gold": "\033[1;38;5;221m",
-        "rank_silver": "\033[1;38;5;188m",
-        "rank_bronze": "\033[1;38;5;181m",
-        "header": "\033[1;38;5;153m",
-    },
-    "bauhaus": {
-        "reset": "\033[0m",
-        "title": "\033[1;38;5;226m",
-        "heading": "\033[1;38;5;196m",
-        "menu_number": "\033[1;38;5;21m",
-        "menu_text": "\033[38;5;21m",
-        "menu_disabled": "\033[38;5;241m",
-        "menu_bullet": "\033[1;38;5;196m",
-        "menu_hint": "\033[38;5;214m",
-        "prompt": "\033[1;38;5;202m",
-        "border": "\033[38;5;196m",
-        "divider": "\033[38;5;241m",
-        "info": "\033[38;5;220m",
-        "warning": "\033[1;38;5;208m",
-        "danger": "\033[1;38;5;196m",
-        "accent": "\033[38;5;39m",
-        "dim": "\033[2;38;5;243m",
-        "value_positive": "\033[38;5;40m",
-        "value_negative": "\033[38;5;196m",
-        "value_neutral": "\033[38;5;244m",
-        "rank_gold": "\033[1;38;5;226m",
-        "rank_silver": "\033[1;38;5;250m",
-        "rank_bronze": "\033[1;38;5;208m",
-        "header": "\033[1;38;5;196m",
-    },
-    "hokusai": {
-        "reset": "\033[0m",
-        "title": "\033[1;38;5;26m",
-        "heading": "\033[38;5;33m",
-        "menu_number": "\033[38;5;31m",
-        "menu_text": "\033[38;5;30m",
-        "menu_disabled": "\033[38;5;240m",
-        "menu_bullet": "\033[1;38;5;31m",
-        "menu_hint": "\033[38;5;75m",
-        "prompt": "\033[1;38;5;111m",
-        "border": "\033[38;5;25m",
-        "divider": "\033[38;5;240m",
-        "info": "\033[38;5;74m",
-        "warning": "\033[38;5;179m",
-        "danger": "\033[38;5;167m",
-        "accent": "\033[38;5;117m",
-        "dim": "\033[2;38;5;238m",
-        "value_positive": "\033[38;5;72m",
-        "value_negative": "\033[38;5;167m",
-        "value_neutral": "\033[38;5;244m",
-        "rank_gold": "\033[1;38;5;228m",
-        "rank_silver": "\033[1;38;5;153m",
-        "rank_bronze": "\033[1;38;5;66m",
-        "header": "\033[1;38;5;32m",
-    },
-    "noir": {
-        "reset": "\033[0m",
-        "title": "\033[1;97m",
-        "heading": "\033[1;90m",
-        "menu_number": "\033[1;37m",
-        "menu_text": "\033[37m",
-        "menu_disabled": "\033[90m",
-        "menu_bullet": "\033[1;97m",
-        "menu_hint": "\033[38;5;249m",
-        "prompt": "\033[1;38;5;203m",
-        "border": "\033[90m",
-        "divider": "\033[90m",
-        "info": "\033[37m",
-        "warning": "\033[1;93m",
-        "danger": "\033[1;91m",
-        "accent": "\033[38;5;208m",
-        "dim": "\033[2;90m",
-        "value_positive": "\033[38;5;47m",
-        "value_negative": "\033[38;5;203m",
-        "value_neutral": "\033[38;5;244m",
-        "rank_gold": "\033[1;33m",
-        "rank_silver": "\033[1;37m",
-        "rank_bronze": "\033[1;35m",
-        "header": "\033[1;97m",
-    },
-    "rothko": {
-        "reset": "\033[0m",
-        "title": "\033[1;38;5;204m",
-        "heading": "\033[38;5;202m",
-        "menu_number": "\033[38;5;131m",
-        "menu_text": "\033[38;5;167m",
-        "menu_disabled": "\033[38;5;95m",
-        "menu_bullet": "\033[1;38;5;208m",
-        "menu_hint": "\033[38;5;209m",
-        "prompt": "\033[1;38;5;203m",
-        "border": "\033[38;5;202m",
-        "divider": "\033[38;5;95m",
-        "info": "\033[38;5;209m",
-        "warning": "\033[38;5;215m",
-        "danger": "\033[1;38;5;196m",
-        "accent": "\033[38;5;178m",
-        "dim": "\033[2;38;5;95m",
-        "value_positive": "\033[38;5;150m",
-        "value_negative": "\033[38;5;203m",
-        "value_neutral": "\033[38;5;244m",
-        "rank_gold": "\033[1;38;5;221m",
-        "rank_silver": "\033[1;38;5;188m",
-        "rank_bronze": "\033[1;38;5;173m",
-        "header": "\033[1;38;5;204m",
-    },
-}
-_CLI_THEME_ORDER = ["aurora", "ember", "evergreen", "monet", "bauhaus", "hokusai", "noir", "rothko"]
-_CLI_THEME_INFO = {
-    "aurora": {"label": "极光（蓝绿）", "description": "亮蓝 / 青色高对比，适合暗色背景"},
-    "ember": {"label": "余烬（暖色）", "description": "暖色调强调提示，适合浅色背景"},
-    "evergreen": {"label": "常青（低饱和）", "description": "柔和绿色主色，整体更稳重"},
-    "monet": {"label": "莫奈·睡莲", "description": "印象派淡蓝粉调，柔和渐变"},
-    "bauhaus": {"label": "包豪斯·构成", "description": "高饱和原色对比，几何感强"},
-    "hokusai": {"label": "北斋·浮世绘", "description": "靛青 + 海浪色，冷色氛围"},
-    "noir": {"label": "黑场·胶片", "description": "黑白高对比，辅以亮橙点缀"},
-    "rothko": {"label": "罗斯科·色域", "description": "红橙叠色，低饱和紫调过渡"},
-}
+# 主题定义已移至 utils/colors.py
+# 为了兼容性，从utils.colors导入
+from .utils.colors import CLI_THEMES as _CLI_THEMES
 
 _TERMINAL_SIZE_CACHE = {"columns": 120, "timestamp": 0.0}
-_THEME_SAMPLE_CACHE: Dict[str, str] = {}
-
-_DEFAULT_SETTINGS = {
-    "cli_theme": "aurora",
-    "plot_template": "plotly_white",
-    "plot_line_width": 2.2,
-    "correlation_alert_threshold": 0.8,
-    "momentum_significance_threshold": 0.6,
-    "momentum_significance_lookback": 756,
-    "trend_consistency_adx": 25.0,
-    "trend_consistency_chop": 38.0,
-    "trend_consistency_fast_span": 20,
-    "trend_consistency_slow_span": 60,
-    "stability_method": "presence_ratio",
-    "stability_window": 15,
-    "stability_top_n": 10,
-    "stability_weight": 0.0,
-}
 
 _MOMENTUM_ALERT_TOP = 6
 _MOMENTUM_ALERT_WEEKS = 3
@@ -335,33 +138,9 @@ _MOMENTUM_ALERT_MIN_DROP = 2
 _MAX_CORRELATION_ALERTS = 15
 
 
-def _load_cli_settings() -> dict:
-    if not SETTINGS_STORE_PATH.exists():
-        return {}
-    try:
-        raw = json.loads(SETTINGS_STORE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    return {}
-
-
+# _load_cli_settings, _save_cli_settings, _update_setting 已移至 config.settings
 _LOADED_SETTINGS = _load_cli_settings()
 _SETTINGS = {**_DEFAULT_SETTINGS, **_LOADED_SETTINGS}
-
-
-def _save_cli_settings() -> None:
-    SETTINGS_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_STORE_PATH.write_text(
-        json.dumps(_SETTINGS, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _update_setting(key: str, value) -> None:
-    _SETTINGS[key] = value
-    _save_cli_settings()
 
 
 _settings_dirty = False
@@ -371,6 +150,9 @@ if _STYLE_THEME not in _CLI_THEMES:
     _SETTINGS["cli_theme"] = _STYLE_THEME
     _settings_dirty = True
 _STYLE_CODES = dict(_CLI_THEMES[_STYLE_THEME])
+
+# 同步主题到utils.colors模块
+_utils_apply_theme(_STYLE_THEME, persist=False)
 
 _PLOT_TEMPLATE = str(_SETTINGS.get("plot_template", _DEFAULT_SETTINGS["plot_template"]))
 if not isinstance(_PLOT_TEMPLATE, str):
@@ -389,52 +171,11 @@ except (TypeError, ValueError):
     _settings_dirty = True
 
 
-def _validate_corr_threshold(value) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return _DEFAULT_SETTINGS["correlation_alert_threshold"]
-    if not (0 < numeric <= 1):
-        return _DEFAULT_SETTINGS["correlation_alert_threshold"]
-    return numeric
-
-
-def _validate_ratio_setting(value, default, *, min_value: float = 0.0, max_value: float = 1.0) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return default
-    if numeric < min_value or numeric > max_value:
-        return default
-    return numeric
-
-
-def _validate_positive_int_setting(value, default, *, minimum: int = 1, maximum: int | None = None) -> int:
-    try:
-        numeric = int(value)
-    except (TypeError, ValueError):
-        return default
-    if numeric < minimum:
-        return default
-    if maximum is not None and numeric > maximum:
-        return default
-    return numeric
-
-
-def _validate_float_range_setting(value, default, *, minimum: float | None = None, maximum: float | None = None) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return default
-    if minimum is not None and numeric < minimum:
-        return default
-    if maximum is not None and numeric > maximum:
-        return default
-    return numeric
+# _validate_* 函数已移至 config.validators
 
 
 _CORRELATION_ALERT_THRESHOLD = _validate_corr_threshold(
-    _SETTINGS.get("correlation_alert_threshold")
+    _SETTINGS.get("correlation_alert_threshold"), _DEFAULT_SETTINGS["correlation_alert_threshold"]
 )
 if _CORRELATION_ALERT_THRESHOLD != _SETTINGS.get("correlation_alert_threshold"):
     _SETTINGS["correlation_alert_threshold"] = _CORRELATION_ALERT_THRESHOLD
@@ -544,7 +285,7 @@ if _STABILITY_WEIGHT != _SETTINGS.get("stability_weight"):
     _settings_dirty = True
 
 if _settings_dirty:
-    _save_cli_settings()
+    _save_cli_settings(_SETTINGS)
 
 
 def _build_builtin_template(
@@ -601,12 +342,8 @@ _BUILTIN_TEMPLATE_DEFINITIONS: Sequence[tuple[str, Sequence[str], str]] = (
 
 
 def _builtin_template_store() -> Dict[str, dict]:
-    store: Dict[str, dict] = {}
-    for name, preset_keys, analysis_key in _BUILTIN_TEMPLATE_DEFINITIONS:
-        payload = _build_builtin_template(preset_keys, analysis_key)
-        if payload:
-            store[name] = payload
-    return store
+    """获取内置模板存储（兼容层）"""
+    return _business_get_builtin_template_store()
 
 
 TEMPLATE_STORE_PATH = Path(__file__).resolve().parent / "templates.json"
@@ -614,15 +351,14 @@ MAX_SERIES_EXPORT = 200
 
 
 _COLOR_ENABLED = sys.stdout.isatty()
+# 同步颜色状态到utils.colors模块
+_utils_set_color_enabled(_COLOR_ENABLED)
 _INTERACTIVE_MODE = False
 _LAST_BUNDLE_REFRESH: dt.datetime | None = None
 _LAST_BACKTEST_CONTEXT: dict | None = None
-_REPORT_HISTORY: List[dict] = []
-_MAX_REPORT_HISTORY = 20
-_REPORT_TIMESTAMP_FMT = "%Y-%m-%d %H:%M"
+# 报告历史改由 business.history 管理
 
-_BUNDLE_ROOT = Path.home() / ".rqalpha" / "bundle"
-_BUNDLE_VERSION_FILE = _BUNDLE_ROOT / "bundle_version.json"
+# Bundle 相关已移至 config.bundle
 _BUNDLE_STATUS_CACHE: dict | None = None
 _BUNDLE_UPDATE_PROMPTED = False
 _BUNDLE_WARNING_EMITTED = False
@@ -633,109 +369,14 @@ def _set_color_enabled(flag: bool) -> None:
     _COLOR_ENABLED = bool(flag)
 
 
-def _try_parse_datetime(value: str) -> Optional[dt.datetime]:
-    if not value:
-        return None
-    normalized = value.strip()
-    if not normalized:
-        return None
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1] + "+00:00"
-    try:
-        return dt.datetime.fromisoformat(normalized)
-    except ValueError:
-        pass
-    patterns = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y-%m-%d",
-        "%Y/%m/%d",
-    ]
-    for pattern in patterns:
-        try:
-            return dt.datetime.strptime(normalized, pattern)
-        except ValueError:
-            continue
-    return None
-
-
-def _parse_bundle_version(value: str) -> Optional[tuple[int, int]]:
-    if not value:
-        return None
-    match = re.search(r"(20\d{4})", value)
-    if not match:
-        return None
-    digits = match.group(1)
-    year = int(digits[:4])
-    month = int(digits[4:])
-    if 1 <= month <= 12:
-        return year, month
-    return None
-
-
-def _load_bundle_metadata() -> Optional[dict]:
-    if not _BUNDLE_VERSION_FILE.exists():
-        return None
-    try:
-        return json.loads(_BUNDLE_VERSION_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _bundle_status(force_refresh: bool = False) -> dict:
-    global _BUNDLE_STATUS_CACHE
-    if not force_refresh and _BUNDLE_STATUS_CACHE is not None:
-        return _BUNDLE_STATUS_CACHE
-    metadata = _load_bundle_metadata()
-    today = dt.date.today()
-    has_files = False
-    if _BUNDLE_ROOT.exists():
-        for candidate in _BUNDLE_ROOT.glob("*.h5"):
-            has_files = True
-            break
-    status: dict = {"state": "missing", "metadata": metadata, "has_files": has_files}
-    if not metadata:
-        if has_files:
-            status["state"] = "fresh"
-            status["version_raw"] = None
-            status["version"] = None
-        _BUNDLE_STATUS_CACHE = status
-        return status
-    version_raw = metadata.get("bundle_version") or metadata.get("version") or metadata.get("bundle") or ""
-    parsed_version = _parse_bundle_version(str(version_raw))
-    updated_raw = metadata.get("updated_at") or metadata.get("created_at") or metadata.get("generated_at")
-    updated_dt = _try_parse_datetime(str(updated_raw)) if updated_raw else None
-    status.update(
-        {
-            "state": "unknown",
-            "version_raw": version_raw,
-            "version": None,
-            "updated_at": updated_dt,
-        }
-    )
-    if parsed_version:
-        year, month = parsed_version
-        status["version"] = f"{year}{month:02d}"
-        status["year"] = year
-        status["month"] = month
-        months_delta = (today.year - year) * 12 + (today.month - month)
-        status["months_behind"] = months_delta
-        status["state"] = "fresh" if months_delta <= 0 else "stale"
-    if updated_dt:
-        now = dt.datetime.now(updated_dt.tzinfo) if updated_dt.tzinfo else dt.datetime.now()
-        delta_days = (now - updated_dt).days
-        status["days_since_update"] = delta_days
-        if status["state"] == "unknown" and delta_days <= 7:
-            status["state"] = "fresh"
-    _BUNDLE_STATUS_CACHE = status
-    return status
-
-
 def _maybe_prompt_bundle_refresh(interactive: bool, reason: str, *, force: bool = False) -> None:
-    global _BUNDLE_UPDATE_PROMPTED, _BUNDLE_WARNING_EMITTED
-    status = _bundle_status()
+    global _BUNDLE_UPDATE_PROMPTED, _BUNDLE_WARNING_EMITTED, _BUNDLE_STATUS_CACHE
+
+    # 初始化缓存如果为None
+    if _BUNDLE_STATUS_CACHE is None:
+        _BUNDLE_STATUS_CACHE = {}
+
+    status = _bundle_status(cache=_BUNDLE_STATUS_CACHE)
     state = status.get("state")
     if state == "fresh" and not force:
         return
@@ -791,7 +432,7 @@ def _set_correlation_alert_threshold(value: float, *, persist: bool = True) -> f
     numeric = _validate_corr_threshold(value)
     _CORRELATION_ALERT_THRESHOLD = numeric
     if persist:
-        _update_setting("correlation_alert_threshold", numeric)
+        _update_setting(_SETTINGS,_SETTINGS, "correlation_alert_threshold", numeric)
     return numeric
 
 
@@ -805,7 +446,7 @@ def _set_momentum_significance_threshold(value: float, *, persist: bool = True) 
     )
     _MOMENTUM_SIGNIFICANCE_THRESHOLD = numeric
     if persist:
-        _update_setting("momentum_significance_threshold", numeric)
+        _update_setting(_SETTINGS,"momentum_significance_threshold", numeric)
     return numeric
 
 
@@ -819,7 +460,7 @@ def _set_momentum_significance_lookback(value: int, *, persist: bool = True) -> 
     )
     _MOMENTUM_SIGNIFICANCE_LOOKBACK = numeric
     if persist:
-        _update_setting("momentum_significance_lookback", numeric)
+        _update_setting(_SETTINGS,"momentum_significance_lookback", numeric)
     return numeric
 
 
@@ -833,7 +474,7 @@ def _set_trend_consistency_adx(value: float, *, persist: bool = True) -> float:
     )
     _TREND_CONSISTENCY_ADX = numeric
     if persist:
-        _update_setting("trend_consistency_adx", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_adx", numeric)
     return numeric
 
 
@@ -847,7 +488,7 @@ def _set_trend_consistency_chop(value: float, *, persist: bool = True) -> float:
     )
     _TREND_CONSISTENCY_CHOP = numeric
     if persist:
-        _update_setting("trend_consistency_chop", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_chop", numeric)
     return numeric
 
 
@@ -863,9 +504,9 @@ def _set_trend_fast_span(value: int, *, persist: bool = True) -> int:
     if _TREND_SLOW_SPAN <= _TREND_FAST_SPAN:
         _TREND_SLOW_SPAN = min(500, _TREND_FAST_SPAN + 5)
         if persist:
-            _update_setting("trend_consistency_slow_span", _TREND_SLOW_SPAN)
+            _update_setting(_SETTINGS,"trend_consistency_slow_span", _TREND_SLOW_SPAN)
     if persist:
-        _update_setting("trend_consistency_fast_span", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_fast_span", numeric)
     return numeric
 
 
@@ -881,7 +522,7 @@ def _set_trend_slow_span(value: int, *, persist: bool = True) -> int:
         numeric = min(500, _TREND_FAST_SPAN + 5)
     _TREND_SLOW_SPAN = numeric
     if persist:
-        _update_setting("trend_consistency_slow_span", numeric)
+        _update_setting(_SETTINGS,"trend_consistency_slow_span", numeric)
     return numeric
 
 
@@ -892,7 +533,7 @@ def _set_stability_method(value: str, *, persist: bool = True) -> str:
         return _STABILITY_METHOD
     _STABILITY_METHOD = normalized
     if persist:
-        _update_setting("stability_method", normalized)
+        _update_setting(_SETTINGS,"stability_method", normalized)
     return normalized
 
 
@@ -906,7 +547,7 @@ def _set_stability_window(value: int, *, persist: bool = True) -> int:
     )
     _STABILITY_WINDOW = numeric
     if persist:
-        _update_setting("stability_window", numeric)
+        _update_setting(_SETTINGS,"stability_window", numeric)
     return numeric
 
 
@@ -920,7 +561,7 @@ def _set_stability_top_n(value: int, *, persist: bool = True) -> int:
     )
     _STABILITY_TOP_N = numeric
     if persist:
-        _update_setting("stability_top_n", numeric)
+        _update_setting(_SETTINGS,"stability_top_n", numeric)
     return numeric
 
 
@@ -934,17 +575,14 @@ def _set_stability_weight(value: float, *, persist: bool = True) -> float:
     )
     _STABILITY_WEIGHT = numeric
     if persist:
-        _update_setting("stability_weight", numeric)
+        _update_setting(_SETTINGS,"stability_weight", numeric)
     return numeric
 
 
 def colorize(text: str, style: str, fallback: str | None = None) -> str:
-    if not _COLOR_ENABLED:
-        return text
-    code = _STYLE_CODES.get(style) or (fallback and _STYLE_CODES.get(fallback))
-    if not code:
-        return text
-    return f"{code}{text}{_STYLE_CODES['reset']}"
+    """颜色化文本（兼容层，逐步迁移到utils.colors）"""
+    # 使用新的utils.colors模块
+    return _utils_colorize(text, style, fallback)
 
 
 def _apply_cli_theme(theme_key: str, *, persist: bool = True) -> bool:
@@ -959,7 +597,7 @@ def _apply_cli_theme(theme_key: str, *, persist: bool = True) -> bool:
         _display_width.cache_clear()
     _THEME_SAMPLE_CACHE.clear()
     if persist:
-        _update_setting("cli_theme", theme_key)
+        _update_setting(_SETTINGS,"cli_theme", theme_key)
     return True
 
 
@@ -1029,429 +667,53 @@ def _detect_rank_drop_alerts(result, weeks: int = _MOMENTUM_ALERT_WEEKS, min_dro
     return alerts
 
 
+# Moved to business.alerts
+from .business import detect_high_correlation_pairs as _business_detect_high_correlation_pairs
+from .business import collect_alerts as _business_collect_alerts
+
 def _detect_high_correlation_pairs(
     corr: pd.DataFrame,
     threshold: float | None = None,
     max_pairs: int = _MAX_CORRELATION_ALERTS,
 ) -> List[dict]:
-    if corr.empty:
-        return []
     if threshold is None:
         threshold = _CORRELATION_ALERT_THRESHOLD
-    matrix = corr.to_numpy(dtype=float)
-    n = matrix.shape[0]
-    if n < 2:
-        return []
-    rows, cols = np.triu_indices(n, k=1)
-    values = matrix[rows, cols]
-    mask = np.isfinite(values) & (values >= threshold)
-    if not mask.any():
-        return []
-    rows = rows[mask]
-    cols = cols[mask]
-    values = values[mask]
-    order = np.argsort(values)[::-1]
-    columns = list(corr.columns)
-    alerts: List[dict] = []
-    for idx in order[:max_pairs]:
-        i = rows[idx]
-        j = cols[idx]
-        value = float(values[idx])
-        code_a = columns[i]
-        code_b = columns[j]
-        alerts.append(
-            {
-                "code_a": code_a,
-                "label_a": _format_label(code_a),
-                "code_b": code_b,
-                "label_b": _format_label(code_b),
-                "value": round(value, 4),
-            }
-        )
-    return alerts
+    return _business_detect_high_correlation_pairs(
+        corr, threshold=threshold, max_pairs=max_pairs, format_label_func=_format_label
+    )
 
 
 def _collect_alerts(result) -> dict:
-    return {
-        "momentum_rank_drops": _detect_rank_drop_alerts(result),
-        "high_correlation_pairs": _detect_high_correlation_pairs(
-            result.correlation, max_pairs=_MAX_CORRELATION_ALERTS
-        ),
-    }
+    return _business_collect_alerts(
+        result,
+        correlation_threshold=_CORRELATION_ALERT_THRESHOLD,
+        max_correlation_pairs=_MAX_CORRELATION_ALERTS,
+        format_label_func=_format_label,
+    )
 
 
-def _chop_state_label(state: Optional[str], lang: str) -> Optional[str]:
-    mapping = {
-        "strong_trend": {"zh": "强趋势", "en": "Strong Trend"},
-        "trend_breakout": {"zh": "趋势启动", "en": "Trend Breakout"},
-        "trend": {"zh": "趋势", "en": "Trend"},
-        "range": {"zh": "盘整", "en": "Range"},
-        "range_watch": {"zh": "盘整观察", "en": "Range Watch"},
-        "neutral": {"zh": "中性", "en": "Neutral"},
-    }
-    if not state:
-        return None
-    record = mapping.get(state)
-    if not record:
-        return None
-    return record.get(lang, record.get("en"))
+# 迁移至 utils.formatters
+from .utils import chop_state_label as _chop_state_label
 
+
+# Moved to business.reports (268 lines) - old implementation removed
+from .business import build_strategy_gate_entries as _business_build_strategy_gate_entries
 
 def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
-    entries: List[tuple[str, str]] = []
-    market = getattr(result, "market_snapshot", None)
-    is_zh = lang == "zh"
+    return _business_build_strategy_gate_entries(result, lang, format_label_func=_format_label)
 
-    summary_sorted = pd.DataFrame()
-    if isinstance(getattr(result, "summary", None), pd.DataFrame) and not result.summary.empty:
-        summary_sorted = result.summary.sort_values("momentum_score", ascending=False)
-    top_label: Optional[str] = None
-    top_score: Optional[float] = None
-    top_adx: Optional[float] = None
-    top_adx_state: Optional[str] = None
-    if not summary_sorted.empty:
-        top_row = summary_sorted.iloc[0]
-        top_code = top_row.get("etf")
-        if isinstance(top_code, str):
-            top_label = _format_label(top_code)
-        try:
-            top_score = float(top_row.get("momentum_score"))
-        except (TypeError, ValueError):
-            top_score = None
-        try:
-            top_adx = float(top_row.get("adx"))
-        except (TypeError, ValueError):
-            top_adx = None
-        top_adx_state = top_row.get("adx_state")
+# Old implementation removed (268 lines)
 
-    def _to_float(value) -> Optional[float]:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return None
-        return numeric if np.isfinite(numeric) else None
-
-    def fmt_price(value) -> str:
-        numeric = _to_float(value)
-        return f"{numeric:.2f}" if numeric is not None else "--"
-
-    def fmt_pct(value) -> str:
-        numeric = _to_float(value)
-        return f"{numeric:.2f}%" if numeric is not None else "--"
-
-    def fmt_date(value) -> str:
-        if hasattr(value, "isoformat"):
-            return value.isoformat()
-        if value:
-            return str(value)
-        return "最新" if is_zh else "latest"
-
-    chop_val = _to_float(market.get("chop14") if market else None)
-    chop_low = _to_float(market.get("chop_p30") if market else None)
-    chop_high = _to_float(market.get("chop_p70") if market else None)
-    prev_chop = _to_float(market.get("chop14_prev") if market else None)
-    state_key = market.get("chop14_state") if market else None
-    if state_key is None:
-        if chop_val is not None and chop_low is not None and chop_high is not None:
-            if chop_val <= chop_low:
-                state_key = "trend"
-            elif chop_val >= chop_high:
-                state_key = "range"
-            else:
-                state_key = "neutral"
-        elif chop_val is not None:
-            if chop_val <= 38.2:
-                state_key = "trend"
-            elif prev_chop is not None and prev_chop > 55 and chop_val <= 55:
-                state_key = "trend"
-            elif chop_val >= 61.8:
-                state_key = "range"
-            elif prev_chop is not None and 55 <= chop_val < 61.8:
-                state_key = "range"
-            else:
-                state_key = "neutral"
-    state_label = _chop_state_label(state_key, "zh" if is_zh else "en")
-    state_tag = ""
-    if state_label:
-        state_tag = f"（{state_label}）" if is_zh else f" ({state_label})"
-    chop_line: Optional[str] = None
-    chop_style = "menu_hint"
-    if chop_val is not None:
-        prefix = f"{state_label} · " if state_label else ""
-
-        def adx_comment_trend() -> str:
-            if top_adx is None:
-                return ""
-            if is_zh:
-                if top_adx_state == "strong":
-                    return f"，ADX {top_adx:.1f} 显示趋势强度充足。"
-                if top_adx_state == "setup":
-                    return f"，ADX {top_adx:.1f} 正在爬升，可留意放量确认。"
-                return f"，但 ADX 仅 {top_adx:.1f}，谨防假突破。"
-            else:
-                if top_adx_state == "strong":
-                    return f", ADX {top_adx:.1f} confirms strong trend."
-                if top_adx_state == "setup":
-                    return f", ADX {top_adx:.1f} building; watch for confirmation."
-                return f", yet ADX {top_adx:.1f} remains weak; beware of whipsaw."
-
-        def adx_comment_range() -> str:
-            if top_adx is None:
-                return ""
-            if is_zh:
-                if top_adx_state == "strong":
-                    return f"（ADX {top_adx:.1f} 偏高，后续如回落可关注切换策略）"
-                if top_adx_state == "setup":
-                    return f"（ADX {top_adx:.1f} 尚未站稳，耐心等待方向明确）"
-                return f"（ADX {top_adx:.1f} 偏弱，更适合均值策略或等待突破）"
-            else:
-                if top_adx_state == "strong":
-                    return f" (ADX {top_adx:.1f} elevated; watch for fading momentum)"
-                if top_adx_state == "setup":
-                    return f" (ADX {top_adx:.1f} still forming; wait for clarity)"
-                return f" (ADX {top_adx:.1f} weak; favor mean reversion)"
-
-        if state_key == "trend" and chop_low is not None:
-            if is_zh:
-                momentum_hint = (
-                    f"，动量龙头 {top_label} 得分 {top_score:.2f}，可保留趋势腿"
-                    if top_label and top_score is not None
-                    else "，结合动量信号维持趋势腿"
-                )
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} 低于自身 30% 分位 {chop_low:.1f} → 趋势环境{momentum_hint}{adx_comment_trend()}"
-            else:
-                momentum_hint = (
-                    f", momentum leader {top_label} score {top_score:.2f}; keep trend legs aligned"
-                    if top_label and top_score is not None
-                    else ", align with momentum legs"
-                )
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} < own 30th percentile {chop_low:.1f} → trend regime{momentum_hint}{adx_comment_trend()}"
-        elif state_key == "range" and chop_high is not None:
-            chop_style = "warning"
-            if is_zh:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} 高于自身 70% 分位 {chop_high:.1f} → 盘整环境，建议降低卫星仓或转向均值策略{adx_comment_range()}"
-            else:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} > own 70th percentile {chop_high:.1f} → range-bound; trim satellites or switch to mean reversion{adx_comment_range()}"
-        elif state_key == "neutral" and chop_low is not None and chop_high is not None:
-            if is_zh:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} 介于 30% ({chop_low:.1f}) 与 70% ({chop_high:.1f}) 分位 → 中性环境，留意量价突破"
-            else:
-                chop_line = f"{prefix}CHOP(14) {chop_val:.1f} between 30th ({chop_low:.1f}) and 70th ({chop_high:.1f}) percentiles → neutral regime; watch for breakouts"
-        else:
-            if chop_val <= 38.2:
-                chop_line = (
-                    f"{prefix}CHOP(14) {chop_val:.1f} ≤ 38.2 → 趋势环境，可结合动量维持趋势腿。"
-                    if is_zh
-                    else f"{prefix}CHOP(14) {chop_val:.1f} ≤ 38.2 → trend regime; align with momentum legs."
-                )
-            elif prev_chop is not None and prev_chop > 55 and chop_val <= 55:
-                chop_line = (
-                    f"{prefix}CHOP(14) {chop_val:.1f} 自上而下跌破 55 → 趋势启动，关注放量确认。"
-                    if is_zh
-                    else f"{prefix}CHOP(14) {chop_val:.1f} drops below 55 → trend breakout; watch for volume confirmation."
-                )
-        close_val = market.get("close")
-        ma200_val = market.get("ma200")
-        trade_date = market.get("trade_date")
-        above_ma = bool(market.get("above_ma200"))
-        date_text = fmt_date(trade_date)
-        orientation_text_zh = "在年线上方" if above_ma else "在年线下方"
-        orientation_text_en = "above MA200" if above_ma else "below MA200"
-        legs_text_zh = "持 2 条腿 × 各 20%" if above_ma else "仅持 1 条腿 × 15%"
-        legs_text_en = "run 2 legs at 20% each" if above_ma else "run 1 leg at 15%"
-        trend_line = (
-            f"趋势闸{state_tag}：沪深300 {orientation_text_zh}（{date_text} 收盘 {fmt_price(close_val)} / MA200 {fmt_price(ma200_val)}），建议{legs_text_zh}。"
-            if is_zh
-            else f"Trend Gate{state_tag}: CSI 300 is {orientation_text_en} (close {fmt_price(close_val)} / MA200 {fmt_price(ma200_val)} on {date_text}); recommend {legs_text_en}."
-        )
-        entries.append((trend_line, "title"))
-
-        atr_pct_val = market.get("atr20_pct")
-        atr_text = fmt_pct(atr_pct_val)
-        high_vol = False
-        atr_numeric = _to_float(atr_pct_val)
-        if atr_numeric is not None:
-            high_vol = atr_numeric > 4.0
-        if above_ma and not high_vol:
-            risk_stop = "-10%"
-            risk_style = "menu_hint"
-            risk_context_zh = "强趋势"
-            risk_context_en = "strong trend"
-        else:
-            risk_stop = "-15%"
-            risk_style = "warning"
-            risk_context_zh = "震荡/高波动"
-            risk_context_en = "range / high vol"
-        risk_line = (
-            f"风控：单腿基线止损 -12%。沪深300 {orientation_text_zh}、ATR20/价 {atr_text} → {risk_context_zh}，建议止损 {risk_stop}；跌破年线时卫星仓减半。"
-            if is_zh
-            else f"Risk: Base stop -12%. CSI 300 is {orientation_text_en}, ATR20/Price {atr_text} → {risk_context_en}; use {risk_stop} stop and halve satellites if the index breaks MA200."
-        )
-        entries.append((risk_line, risk_style))
-    else:
-        trend_fallback = (
-            "趋势闸：未获取沪深300年线数据，默认仅保留 1 条腿 × 15%。"
-            if is_zh
-            else "Trend Gate: CSI 300 MA200 data unavailable; default to one 15% leg."
-        )
-        risk_fallback = (
-            "风控：缺少指数波动数据，沿用基线止损 -12%，如大盘走弱仍需减半。"
-            if is_zh
-            else "Risk: Missing benchmark volatility data; keep -12% stop and halve satellites if the index weakens."
-        )
-        entries.append((trend_fallback, "warning"))
-        entries.append((risk_fallback, "warning"))
-
-    if chop_line:
-        entries.append((chop_line, chop_style))
-
-    if summary_sorted.empty and not result.summary.empty:
-        summary_sorted = result.summary.sort_values("momentum_score", ascending=False)
-    top_candidates: List[tuple[str, str]] = []
-    for _, row in summary_sorted.head(3).iterrows():
-        code = row.get("etf")
-        if isinstance(code, str) and code:
-            top_candidates.append((code, _format_label(code)))
-    if len(top_candidates) >= 2:
-        (code_a, label_a), (code_b, label_b) = top_candidates[:2]
-        corr_value: float | None = None
-        try:
-            corr_raw = result.correlation.loc[code_a, code_b]
-        except Exception:  # noqa: BLE001
-            corr_raw = None
-        if corr_raw is not None and pd.notna(corr_raw):
-            try:
-                corr_numeric = float(corr_raw)
-                if np.isfinite(corr_numeric):
-                    corr_value = corr_numeric
-            except (TypeError, ValueError):
-                corr_value = None
-        threshold = 0.8
-        if corr_value is None:
-            text = (
-                f"相关性闸：{label_a} ↔ {label_b} 缺少相关系数数据，需手动核对。"
-                if is_zh
-                else f"Correlation Gate: Missing correlation for {label_a} ↔ {label_b}; please verify manually."
-            )
-            entries.append((text, "warning"))
-        elif corr_value > threshold:
-            corr_text = f"ρ={corr_value:.2f}"
-            if len(top_candidates) >= 3:
-                replacement_label = top_candidates[2][1]
-                text = (
-                    f"相关性闸：{label_a} ↔ {label_b} {corr_text} > 0.80，优先改用 {replacement_label} 作为第二腿。"
-                    if is_zh
-                    else f"Correlation Gate: {label_a} ↔ {label_b} {corr_text} > 0.80; switch second leg to {replacement_label}."
-                )
-            else:
-                text = (
-                    f"相关性闸：{label_a} ↔ {label_b} {corr_text} > 0.80，暂无备选，建议仅保留一条腿。"
-                    if is_zh
-                    else f"Correlation Gate: {label_a} ↔ {label_b} {corr_text} > 0.80; no alternate, consider a single leg."
-                )
-            entries.append((text, "warning"))
-        else:
-            text = (
-                f"相关性闸：{label_a} ↔ {label_b} ρ={corr_value:.2f} ≤ 0.80，可同时持有。"
-                if is_zh
-                else f"Correlation Gate: {label_a} ↔ {label_b} ρ={corr_value:.2f} ≤ 0.80; dual-leg allocation allowed."
-            )
-            entries.append((text, "menu_hint"))
-    elif top_candidates:
-        text = (
-            f"相关性闸：当前仅有 {top_candidates[0][1]} 入选，维持单腿持仓。"
-            if is_zh
-            else f"Correlation Gate: Only {top_candidates[0][1]} qualifies; keep a single leg."
-        )
-        entries.append((text, "menu_hint"))
-
-    return entries
+# New wrapper function
+def _build_strategy_gate_entries(result, lang: str) -> List[tuple[str, str]]:
+    return _business_build_strategy_gate_entries(result, lang, format_label_func=_format_label)
 
 
-_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
-
-# 常见“视觉等宽但被标记为 Ambiguous 的字符”，在多数终端里仍按单宽显示
-_AMBIGUOUS_NARROW = {
-    "·",
-    "•",
-    "°",
-    "×",
-    "÷",
-}
+# 显示和解析相关函数已移至 utils 模块
 
 
-@functools.lru_cache(maxsize=2048)
-def _strip_ansi(text: str) -> str:
-    return _ANSI_PATTERN.sub("", text)
-
-
-def _fallback_display_width(text: str) -> int:
-    width = 0
-    for char in text:
-        if not char:
-            continue
-        if unicodedata.combining(char):
-            continue
-        code = ord(char)
-        if code < 128:
-            width += 1
-            continue
-        east = unicodedata.east_asian_width(char)
-        if east in {"F", "W"}:
-            width += 2
-        elif east == "A" and char not in _AMBIGUOUS_NARROW:
-            width += 2
-        else:
-            width += 1
-    return width
-
-
-@functools.lru_cache(maxsize=1024)
-def _display_width(text: str) -> int:
-    cleaned = _strip_ansi(text)
-    if _wcwidth_wcswidth:
-        width = _wcwidth_wcswidth(cleaned)
-        if width >= 0:
-            return width
-    return _fallback_display_width(cleaned)
-
-
-def _pad_display(text: str, width: int, align: str) -> str:
-    current = _display_width(text)
-    delta = max(0, width - current)
-    if delta == 0:
-        return text
-    if align == "right":
-        return " " * delta + text
-    if align == "center":
-        left = delta // 2
-        right = delta - left
-        return " " * left + text + " " * right
-    return text + " " * delta
-
-
-def _extract_float(text: str) -> float | None:
-    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
-    if not match:
-        return None
-    try:
-        return float(match.group())
-    except ValueError:
-        return None
-
-
-def _adx_state_label(state: Optional[str], lang: str) -> Optional[str]:
-    mapping = {
-        "weak": {"zh": "趋势弱", "en": "Weak"},
-        "setup": {"zh": "趋势初现", "en": "Emerging"},
-        "strong": {"zh": "趋势强", "en": "Strong"},
-    }
-    if not state:
-        return None
-    record = mapping.get(state)
-    if not record:
-        return None
-    return record.get(lang, record.get("en"))
+# 移至 utils.formatters
+from .utils import adx_state_label as _adx_state_label
 
 
 def _style_summary_value(label: str, value: str, row: dict) -> str:
@@ -1573,13 +835,10 @@ def _style_summary_value(label: str, value: str, row: dict) -> str:
     return value
 
 
+# 迁移至 utils.formatters，保留兼容层
 def _style_rank_header(rank: int, text: str) -> str:
-    if not _COLOR_ENABLED:
-        return text
-    style = _rank_style(rank)
-    if style:
-        return colorize(text, style)
-    return text
+    from .utils import style_rank_header
+    return style_rank_header(rank, text, enable_color=_COLOR_ENABLED)
 
 
 def _format_menu_item(
@@ -1589,41 +848,18 @@ def _format_menu_item(
     *,
     selected: bool = False,
 ) -> str:
-    if isinstance(index, str):
-        index_display = index.rjust(2)
-    else:
-        index_display = f"{index:>2}"
-    number_style = "menu_number" if enabled else "menu_disabled"
-    bullet_style = "menu_bullet" if enabled else "menu_disabled"
-    text_style = "menu_text" if enabled else "menu_disabled"
-    bullet_char = "›" if enabled else "·"
-    if selected and enabled:
-        number_style = "prompt"
-        bullet_style = "prompt"
-        text_style = "prompt"
-        bullet_char = "▶"
-    number = colorize(index_display, number_style)
-    bullet = colorize(bullet_char, bullet_style)
-    text = colorize(label, text_style)
-    return f" {number} {bullet} {text}"
+    """格式化菜单项（兼容层，使用ui.menu模块）"""
+    return _ui_format_menu_item(index, label, enabled, selected=selected)
 
 
 def _menu_hint(text: str) -> str:
-    return colorize(text, "menu_hint")
+    """菜单提示（兼容层，使用ui.menu模块）"""
+    return _ui_menu_hint(text)
 
 
 def _supports_interactive_menu() -> bool:
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return False
-    if msvcrt is not None:
-        return True
-    if termios is None or tty is None:
-        return False
-    try:
-        sys.stdin.fileno()
-    except (AttributeError, io.UnsupportedOperation):
-        return False
-    return True
+    """检查是否支持交互式菜单（兼容层，使用ui.menu模块）"""
+    return _ui_supports_interactive_menu()
 
 
 _ESC_SEQUENCE_TIMEOUT = 0.3
@@ -1631,132 +867,9 @@ _ESC_POLL_INTERVAL = 0.05
 _MAX_ESC_SEQUENCE = 16
 
 
-def _read_byte(fd: int) -> Optional[str]:
-    try:
-        data = os.read(fd, 1)
-    except OSError:
-        return None
-    if not data:
-        return None
-    return data.decode("latin-1")
-
-
-def _read_escape_sequence(fd: int) -> str:
-    chars: List[str] = []
-    deadline = time.monotonic() + _ESC_SEQUENCE_TIMEOUT
-    while len(chars) < _MAX_ESC_SEQUENCE and time.monotonic() < deadline:
-        try:
-            rlist, _, _ = select.select([fd], [], [], _ESC_POLL_INTERVAL)
-        except (OSError, ValueError):
-            break
-        if not rlist:
-            break
-        next_ch = _read_byte(fd)
-        if not next_ch:
-            break
-        chars.append(next_ch)
-        if next_ch.isalpha() or next_ch == "~":
-            break
-    return "".join(chars)
-
-
-def _translate_escape_sequence(sequence: str) -> Optional[str]:
-    mapping = {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}
-    if not sequence:
-        return "ESC"
-    prefix = sequence[0]
-    final = sequence[-1]
-    if prefix in {"[", "O"} and final in mapping:
-        return mapping[final]
-    if prefix == "[" and final == "Z":
-        return "SHIFT_TAB"
-    if prefix == "[" and final in mapping:
-        return mapping[final]
-    return "ESC"
-
-
-def _read_keypress() -> Optional[str]:
-    if msvcrt is not None:
-        ch = msvcrt.getwch()
-        _log_key_event("raw", ch)
-        if ch in {"\r", "\n"}:
-            return _log_key_result("ENTER")
-        if ch in {"\x00", "\xe0"}:
-            seq = msvcrt.getwch()
-            _log_key_event("esc_sequence", seq)
-            mapping = {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT"}
-            return _log_key_result(mapping.get(seq))
-        if ch == "\x1b":
-            return _log_key_result("ESC")
-        if ch == "\x03":
-            raise KeyboardInterrupt
-        if ch == "\x08":
-            return _log_key_result("BACKSPACE")
-        return _log_key_result(ch)
-    if termios is None or tty is None:
-        return _log_key_result(None)
-    try:
-        fd = sys.stdin.fileno()
-    except (AttributeError, io.UnsupportedOperation):
-        return _log_key_result(None)
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = _read_byte(fd)
-        if ch is None:
-            return _log_key_result(None)
-        _log_key_event("raw", ch)
-        if ch == "\x03":
-            raise KeyboardInterrupt
-        if ch in {"\r", "\n"}:
-            return _log_key_result("ENTER")
-        if ch == "\x1b":
-            sequence = _read_escape_sequence(fd)
-            _log_key_event("esc_sequence", sequence or "<empty>")
-            translated = _translate_escape_sequence(sequence)
-            return _log_key_result(translated)
-        if ch in {"\x7f", "\b"}:
-            return _log_key_result("BACKSPACE")
-        return _log_key_result(ch)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-def _move_selection(options: Sequence[dict], current: int, delta: int) -> int:
-    if not options:
-        return 0
-    count = len(options)
-    index = current
-    for _ in range(count):
-        index = (index + delta) % count
-        if options[index]["enabled"]:
-            return index
-    return current
-
-
-def _find_option_by_key(options: Sequence[dict], key: str) -> Optional[int]:
-    lowered = key.lower()
-    for idx, option in enumerate(options):
-        if option["key"].lower() == lowered:
-            return idx
-        if option["display"].lower() == lowered:
-            return idx
-    return None
-
-
-def _find_option_by_prefix(options: Sequence[dict], key: str) -> Optional[int]:
-    lowered = key.lower()
-    matches = [
-        idx
-        for idx, option in enumerate(options)
-        if option["key"].lower().startswith(lowered)
-        or option["display"].lower().startswith(lowered)
-    ]
-    if not matches:
-        return None
-    if len(matches) == 1:
-        return matches[0]
-    return None
+# 键盘读取和菜单辅助函数已移至 ui 模块
+# 为了兼容性，从ui模块导入
+from .ui.input import read_keypress as _read_keypress
 
 
 def _get_terminal_columns() -> int:
@@ -1788,107 +901,7 @@ def _estimate_physical_lines(lines: Sequence[str]) -> int:
     return total
 
 
-def _render_menu_block(
-    *,
-    header_lines: Sequence[str] | None,
-    title: Optional[str],
-    options: Sequence[dict],
-    hint_line: Optional[str],
-    footer_lines: Sequence[str] | None,
-    selected_index: int,
-    pending_input: str,
-    min_physical_lines: int = 0,
-) -> int:
-    lines: List[str] = []
-    if header_lines:
-        lines.extend(header_lines)
-    if title:
-        divider_text = title if "\x1b[" in title else colorize(title, "divider")
-        lines.append(divider_text)
-    for idx, option in enumerate(options):
-        line = _format_menu_item(
-            option["display"],
-            option["label"],
-            enabled=option["enabled"],
-            selected=(idx == selected_index and option["enabled"]),
-        )
-        lines.append(line)
-        extra_lines = option.get("extra_lines") or []
-        for extra in extra_lines:
-            lines.append(extra)
-    if hint_line:
-        hint_rendered = hint_line if "\x1b[" in hint_line else colorize(hint_line, "menu_hint")
-        lines.append(hint_rendered)
-    else:
-        lines.append(colorize("↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回", "menu_hint"))
-    if pending_input:
-        lines.append(colorize(f"快捷输入: {pending_input}", "menu_hint"))
-    if footer_lines:
-        lines.extend(footer_lines)
-
-    physical_lines = _estimate_physical_lines(lines)
-    if physical_lines < min_physical_lines:
-        padding_needed = min_physical_lines - physical_lines
-        if padding_needed > 0:
-            lines.extend([""] * padding_needed)
-            physical_lines += padding_needed
-
-    for idx, line in enumerate(lines):
-        sys.stdout.write("\r\033[2K" + line)
-        if idx < len(lines) - 1:
-            sys.stdout.write("\n")
-    sys.stdout.flush()
-    return physical_lines if physical_lines > 0 else len(lines)
-
-
-def _clear_screen() -> None:
-    if not sys.stdout.isatty():
-        return
-    sys.stdout.write("\033[H\033[2J")
-    sys.stdout.flush()
-
-
-def _erase_menu_block(lines: int) -> None:
-    if lines <= 0:
-        return
-    sys.stdout.write("\r")
-    if lines > 1:
-        sys.stdout.write("\033[F" * (lines - 1))
-    sys.stdout.write("\033[J")
-    sys.stdout.flush()
-
-
-def _print_menu_static(
-    options: Sequence[dict],
-    *,
-    header_lines: Sequence[str] | None,
-    title: Optional[str],
-    hint: Optional[str],
-    footer_lines: Sequence[str] | None,
-    clear_screen: bool = False,
-) -> None:
-    if clear_screen:
-        _clear_screen()
-    if header_lines:
-        for line in header_lines:
-            print(line)
-    if title:
-        divider_text = title if "\x1b[" in title else colorize(title, "divider")
-        print(divider_text)
-    for option in options:
-        print(
-            _format_menu_item(
-                option["display"], option["label"], enabled=option["enabled"]
-            )
-        )
-        for extra in option.get("extra_lines", []):
-            print(extra)
-    if hint:
-        hint_line = hint if "\x1b[" in hint else colorize(hint, "menu_hint")
-        print(hint_line)
-    if footer_lines:
-        for line in footer_lines:
-            print(line)
+# 菜单渲染函数已移至 ui 模块
 
 
 def _prompt_menu_choice(
@@ -1905,256 +918,59 @@ def _prompt_menu_choice(
     escape_prompt: Optional[str] = None,
     clear_screen: bool = False,
 ) -> str:
-    normalized: List[dict] = []
-    for option in options:
-        key = str(option.get("key", ""))
-        display = str(option.get("display", key))
-        normalized.append(
-            {
-                "key": key,
-                "display": display,
-                "label": option.get("label", ""),
-                "enabled": bool(option.get("enabled", True)),
-                "extra_lines": option.get("extra_lines", []),
-            }
-        )
-
-    if not _supports_interactive_menu():
-        _print_menu_static(
-            normalized,
-            header_lines=header_lines,
-            title=title,
-            hint=hint,
-            footer_lines=footer_lines,
-            clear_screen=clear_screen,
-        )
-        raw = input(colorize(prompt_text, "prompt")).strip()
-        if not raw and default_key is not None:
-            return default_key
-        return raw
-
-    enabled_indices = [idx for idx, option in enumerate(normalized) if option["enabled"]]
-    if not enabled_indices:
-        _print_menu_static(
-            normalized,
-            header_lines=header_lines,
-            title=title,
-            hint=hint,
-            footer_lines=footer_lines,
-            clear_screen=clear_screen,
-        )
-        return input(colorize(prompt_text, "prompt")).strip()
-
-    selected_index = enabled_indices[0]
-    if default_key is not None:
-        default_idx = _find_option_by_key(normalized, default_key)
-        if default_idx is not None and normalized[default_idx]["enabled"]:
-            selected_index = default_idx
-    pending = ""
-    rendered_physical_lines = 0
-
-    def finalize(result: str) -> str:
-        nonlocal rendered_physical_lines
-        if rendered_physical_lines:
-            _erase_menu_block(rendered_physical_lines)
-            rendered_physical_lines = 0
-        sys.stdout.flush()
-        return result
-
-    while True:
-        if rendered_physical_lines:
-            sys.stdout.write("\r")
-            if rendered_physical_lines > 1:
-                sys.stdout.write("\033[F" * (rendered_physical_lines - 1))
-            sys.stdout.write("\033[J")
-        elif clear_screen:
-            _clear_screen()
-        rendered_physical_lines = _render_menu_block(
-            header_lines=header_lines,
-            title=title,
-            options=normalized,
-            hint_line=hint,
-            footer_lines=footer_lines,
-            selected_index=selected_index,
-            pending_input=pending,
-            min_physical_lines=rendered_physical_lines,
-        )
-        key = _read_keypress()
-        if key is None:
-            if rendered_physical_lines:
-                _erase_menu_block(rendered_physical_lines)
-                rendered_physical_lines = 0
-            _print_menu_static(
-                normalized,
-                header_lines=header_lines,
-                title=title,
-                hint=hint,
-                footer_lines=footer_lines,
-                clear_screen=clear_screen,
-            )
-            raw = input(colorize(prompt_text, "prompt")).strip()
-            return raw or (default_key or "")
-        if key in {"UP", "LEFT"}:
-            selected_index = _move_selection(normalized, selected_index, -1)
-            pending = ""
-            continue
-        if key in {"DOWN", "RIGHT"}:
-            selected_index = _move_selection(normalized, selected_index, 1)
-            pending = ""
-            continue
-        if key == "BACKSPACE":
-            pending = pending[:-1]
-            continue
-        if key == "ENTER":
-            if pending:
-                target_idx = _find_option_by_key(normalized, pending)
-                if target_idx is not None and normalized[target_idx]["enabled"]:
-                    selected_index = target_idx
-                pending = ""
-            option = normalized[selected_index]
-            if option["enabled"]:
-                return finalize(option["key"])
-            continue
-        if key == "ESC":
-            if allow_escape:
-                return finalize("__escape__")
-            return finalize(default_key or "")
-        if len(key) == 1:
-            lower = key.lower()
-            if lower in {"k"}:
-                selected_index = _move_selection(normalized, selected_index, -1)
-                pending = ""
-                continue
-            if lower in {"j"}:
-                selected_index = _move_selection(normalized, selected_index, 1)
-                pending = ""
-                continue
-            if lower == "q" and allow_escape:
-                zero_idx = _find_option_by_key(normalized, "0")
-                if zero_idx is not None and normalized[zero_idx]["enabled"]:
-                    return finalize(normalized[zero_idx]["key"])
-                return finalize("__escape__")
-            if lower.isdigit():
-                pending += lower
-                exact_match = _find_option_by_key(normalized, pending)
-                if exact_match is not None and normalized[exact_match]["enabled"]:
-                    selected_index = exact_match
-                    if instant_numeric:
-                        return finalize(normalized[exact_match]["key"])
-                    continue
-                prefix_match = _find_option_by_prefix(normalized, pending)
-                if prefix_match is not None:
-                    selected_index = prefix_match
-                    continue
-                pending = lower
-                exact_match = _find_option_by_key(normalized, pending)
-                if exact_match is not None and normalized[exact_match]["enabled"]:
-                    selected_index = exact_match
-                    if instant_numeric:
-                        return finalize(normalized[exact_match]["key"])
-                    continue
-                pending = ""
-                continue
-            match_idx = _find_option_by_key(normalized, lower)
-            if match_idx is not None and normalized[match_idx]["enabled"]:
-                selected_index = match_idx
-                pending = normalized[match_idx]["key"]
-                continue
-            pending = ""
-            continue
-        pending = ""
-
-
-def _load_template_store() -> Dict[str, dict]:
-    base_store = _builtin_template_store()
-    if not TEMPLATE_STORE_PATH.exists():
-        return dict(base_store)
-    try:
-        data = json.loads(TEMPLATE_STORE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return dict(base_store)
-    templates = data.get("templates")
-    if not isinstance(templates, dict):
-        return dict(base_store)
-    store = dict(base_store)
-    for raw_key, value in templates.items():
-        key = str(raw_key)
-        if value is None:
-            store.pop(key, None)
-            continue
-        if isinstance(value, dict):
-            store[key] = dict(value)
-    return store
-
-
-def _write_template_store(store: Dict[str, dict]) -> None:
-    base_store = _builtin_template_store()
-    payload_templates: Dict[str, Optional[dict]] = {}
-    for key, value in store.items():
-        base_value = base_store.get(key)
-        if value is None:
-            payload_templates[key] = None
-            continue
-        if not isinstance(value, dict):
-            continue
-        if base_value is not None and base_value == value:
-            continue
-        payload_templates[key] = value
-    TEMPLATE_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if not payload_templates:
-        try:
-            TEMPLATE_STORE_PATH.unlink()
-        except OSError:
-            pass
-        return
-    payload = {"templates": payload_templates}
-    TEMPLATE_STORE_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
+    """菜单选择（兼容层，使用ui.interactive模块）"""
+    return _ui_prompt_menu_choice(
+        options,
+        title=title,
+        header_lines=header_lines,
+        hint=hint,
+        footer_lines=footer_lines,
+        prompt_text=prompt_text,
+        default_key=default_key,
+        allow_escape=allow_escape,
+        instant_numeric=instant_numeric,
+        escape_prompt=escape_prompt,
+        clear_screen_first=clear_screen,
     )
 
 
+
+# 模板管理函数已移至 business.templates 模块
+def _load_template_store() -> Dict[str, dict]:
+    """加载模板存储（兼容层）"""
+    return _business_load_template_store()
+
+
+def _write_template_store(store: Dict[str, dict]) -> None:
+    """写入模板存储（兼容层）"""
+    _business_write_template_store(store)
+
+
 def _get_template_entry(name: str) -> Optional[dict]:
-    return _load_template_store().get(name)
+    """获取模板条目（兼容层）"""
+    return _business_get_template(name)
 
 
 def _save_template_entry(name: str, payload: dict, overwrite: bool = False) -> bool:
-    store = _load_template_store()
-    existing = store.get(name)
-    if not overwrite and existing is not None:
-        return False
-    store[name] = dict(payload)
-    _write_template_store(store)
-    return True
+    """保存模板条目（兼容层）"""
+    return _business_save_template(name, payload, overwrite)
 
 
 def _delete_template_entry(name: str) -> bool:
-    store = _load_template_store()
-    base_store = _builtin_template_store()
-    existed = name in store or name in base_store
-    if not existed:
-        return False
-    if name in store:
-        del store[name]
-    if name in base_store:
-        store[name] = None
-    _write_template_store(store)
-    return True
+    """删除模板条目（兼容层）"""
+    return _business_delete_template(name)
 
+
+# Moved to business.templates
+from .business import print_template_list as _business_print_template_list
 
 def _print_template_list() -> None:
     store = _load_template_store()
-    if not store:
-        print(colorize("暂无保存的分析模板。", "warning"))
-        return
-    print(colorize("已保存的分析模板：", "heading"))
-    for idx, (name, payload) in enumerate(sorted(store.items()), start=1):
-        preset = payload.get("analysis_preset") or "-"
-        presets = ",".join(payload.get("presets", [])) or "自定义券池"
-        date_range = f"{payload.get('start','-')} → {payload.get('end','-')}"
-        line = f" {idx:>2}. {name} | 预设: {preset} | 券池: {presets} | 区间: {date_range}"
-        print(colorize(line, "menu_text"))
+    _business_print_template_list(store)
 
+
+# Moved to business.templates
+from .business import build_template_payload as _business_build_template_payload
 
 def _build_template_payload(
     config: AnalysisConfig,
@@ -2163,34 +979,7 @@ def _build_template_payload(
     analysis_preset: AnalysisPreset | None,
     export_csv: bool = False,
 ) -> dict:
-    payload = {
-        "etfs": list(config.etfs),
-        "exclude": list(config.exclude),
-        "presets": list(preset_keys),
-        "start": config.start_date,
-        "end": config.end_date,
-        "momentum_windows": list(momentum_config.windows),
-        "momentum_weights": list(momentum_config.weights)
-        if momentum_config.weights is not None
-        else None,
-        "momentum_skip_windows": list(momentum_config.skip_windows)
-        if momentum_config.skip_windows is not None
-        else None,
-        "corr_window": config.corr_window,
-        "chop_window": config.chop_window,
-        "trend_window": config.trend_window,
-        "rank_lookback": config.rank_change_lookback,
-        "make_plots": False,
-        "output_dir": str(config.output_dir),
-        "export_csv": False,
-        "stability_method": config.stability_method,
-        "stability_window": config.stability_window,
-        "stability_top_n": config.stability_top_n,
-        "stability_weight": config.stability_weight,
-    }
-    if analysis_preset:
-        payload["analysis_preset"] = analysis_preset.key
-    return payload
+    return _business_build_template_payload(config, momentum_config, preset_keys, analysis_preset, export_csv)
 
 
 def _template_to_params(template: dict) -> dict:
@@ -2610,9 +1399,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# moved to utils.formatters
+from .utils import formatters as _fmt_utils
+
 def _prepare_summary_table(
     frame: pd.DataFrame, lang: str
 ) -> tuple[List[tuple[str, str, str]], List[dict[str, str]]]:
+    return _fmt_utils.prepare_summary_table(frame, lang)
     ordered = (
         frame.copy()
         .sort_values(["momentum_rank", "momentum_score"], ascending=[True, False])
@@ -2804,173 +1597,36 @@ def _prepare_summary_table(
 
     return _normalize_column_specs(columns), rows
 
+# Overwrite with utils implementation (kept above for reference during transition)
+from .utils import prepare_summary_table as _utils_prepare_summary_table
 
-def _normalize_column_specs(
-    specs: Sequence[tuple[str, str, str] | tuple[str, str, str, bool]]
-) -> List[tuple[str, str, str, bool]]:
-    normalized: List[tuple[str, str, str, bool]] = []
-    for spec in specs:
-        if len(spec) == 3:
-            key, label, align = spec
-            include_compact = True
-        elif len(spec) == 4:
-            key, label, align, include_compact = spec
-        else:  # pragma: no cover - defensive programming
-            raise ValueError("Invalid column specification")
-        normalized.append((str(key), str(label), str(align), bool(include_compact)))
-    return normalized
+def _prepare_summary_table(frame: pd.DataFrame, lang: str):
+    return _utils_prepare_summary_table(frame, lang)
 
+
+
+# moved to utils.formatters
+from .utils import formatters as _fmt_utils
+_normalize_column_specs = _fmt_utils.normalize_column_specs
+
+
+from .utils import formatters as _fmt_utils
 
 def format_summary_frame(frame: pd.DataFrame, lang: str) -> str:
-    if frame.empty:
-        return "暂无可用的动量结果。" if lang == "zh" else "No momentum results available."
+    return _fmt_utils.format_summary_frame(frame, lang, enable_color=_COLOR_ENABLED)
 
-    columns, rows = _prepare_summary_table(frame, lang)
-    if not rows:
-        return "暂无可用的动量结果。" if lang == "zh" else "No momentum results available."
 
-    columns = _normalize_column_specs(columns)
-
-    try:
-        terminal_width = shutil.get_terminal_size().columns
-    except OSError:
-        terminal_width = 120
-
-    if terminal_width < 100:
-        compact_columns = [spec for spec in columns if spec[3]]
-        if not compact_columns:
-            compact_columns = columns
-        lines: List[str] = []
-        for row in rows:
-            header = f"{row['rank_fmt']}. {row['symbol']}"
-            delta = row.get("delta_fmt")
-            if delta and delta not in {"-", "0"}:
-                header += f" (Δ{delta})"
-            try:
-                rank_value = int(row.get("rank_fmt", "0"))
-            except ValueError:
-                rank_value = 0
-            header = _style_rank_header(rank_value, header)
-            if _rank_style(rank_value) is None:
-                header = colorize(header, "menu_text")
-            lines.append(header)
-
-            field_parts = []
-            for key, label, _, _ in compact_columns:
-                if key == "symbol":
-                    continue
-                value = row.get(key, "-")
-                field_parts.append(f"{label}:{value}")
-            body_text = " · ".join(field_parts)
-            wrapped = textwrap.fill(
-                body_text,
-                width=max(terminal_width, 40),
-                initial_indent="    ",
-                subsequent_indent="    ",
-            )
-            lines.append(wrapped)
-            lines.append("")
-        return "\n".join(lines).strip()
-
-    active_columns = columns
-    label_map = {key: label for key, label, _, _ in active_columns}
-    col_widths: dict[str, int] = {}
-    for key, header, _, _ in columns:
-        width_hint = _display_width(header)
-        for row in rows:
-            width_hint = max(width_hint, _display_width(row[key]))
-        col_widths[key] = width_hint
-
-    def _calc_total_width(specs: Sequence[tuple[str, str, str, bool]]) -> int:
-        if not specs:
-            return 0
-        total = 0
-        for idx, (key, _, _, _) in enumerate(specs):
-            total += col_widths[key]
-            if idx < len(specs) - 1:
-                total += 3
-        return total
-
-    max_table_width = max(terminal_width - 4, 60)
-    removable_priority = [
-        "trend_ok_fmt",
-        "mom_pct_fmt",
-        "atr_fmt",
-        "vwap_fmt",
-        "trend_fmt",
-        "ma_fmt",
-        "chop_fmt",
-    ]
-    while len(active_columns) > 5 and _calc_total_width(active_columns) > max_table_width:
-        removed = False
-        for key in removable_priority:
-            if any(col_key == key for col_key, _, _, _ in active_columns):
-                active_columns = [spec for spec in active_columns if spec[0] != key]
-                removed = True
-                break
-        if not removed:
-            break
-
-    label_map = {key: label for key, label, _, _ in active_columns}
-
-    def format_cell(key: str, text: str, align: str, row: dict | None = None) -> str:
-        width = col_widths[key]
-        padded = _pad_display(text, width, align)
-        if row is not None:
-            return _style_summary_value(label_map[key], padded, row)
-        return colorize(padded, "header")
-
-    header_line = " | ".join(
-        format_cell(key, label, align) for key, label, align, _ in active_columns
-    )
-    separator_line = colorize(
-        "-+-".join("-" * col_widths[key] for key, _, _, _ in active_columns), "divider"
-    )
-
-    body_lines = []
-    for row in rows:
-        line_parts = []
-        for key, _, align, _ in active_columns:
-            styled_value = format_cell(key, row[key], align, row=row)
-            if key == "symbol" and _COLOR_ENABLED:
-                try:
-                    rank = int(row.get("rank_fmt", "0"))
-                except ValueError:
-                    rank = 0
-                rank_style = _rank_style(rank)
-                if rank_style:
-                    styled_value = colorize(styled_value, rank_style)
-            line_parts.append(styled_value)
-        body_lines.append(" | ".join(line_parts))
-
-    return "\n".join([header_line, separator_line, *body_lines])
-
+from .utils import formatters as _fmt_utils
 
 def _summary_to_markdown(frame: pd.DataFrame, lang: str) -> str:
-    if frame.empty:
-        return "*暂无可用的动量结果*" if lang == "zh" else "*No momentum results available.*"
-    columns, rows = _prepare_summary_table(frame, lang)
-    if not rows:
-        return "*暂无可用的动量结果*" if lang == "zh" else "*No momentum results available.*"
-    columns = _normalize_column_specs(columns)
+    return _fmt_utils.summary_to_markdown(frame, lang)
 
-    def escape(text: str) -> str:
-        return text.replace("|", "\\|")
 
-    header = "| " + " | ".join(header for _, header, _, _ in columns) + " |"
-    divider = "| " + " | ".join("---" for _ in columns) + " |"
-    body = [
-        "| "
-        + " | ".join(escape(row.get(key, "-")) for key, _, _, _ in columns)
-        + " |"
-        for row in rows
-    ]
-    return "\n".join([header, divider, *body])
-
+# Moved to utils.helpers
+from .utils import format_code_label as _utils_format_code_label
 
 def _format_label(code: str) -> str:
-    label = get_label(code)
-    return f"{label} ({code})" if label else code
+    return _utils_format_code_label(code, get_label)
 
 
 def format_correlation(frame: pd.DataFrame, lang: str) -> str:
@@ -3040,19 +1696,15 @@ def _correlation_to_markdown(frame: pd.DataFrame, lang: str) -> str:
     return "\n".join([header, divider, *body])
 
 
-def _ensure_plotly():
-    try:
-        import plotly.graph_objects as go  # type: ignore
-    except ImportError:
-        print(
-            colorize(
-                "缺少 plotly，无法生成交互式图表。请运行 `pip install plotly` 后重试。",
-                "warning",
-            )
-        )
-        return None
-    return go
+# Moved to business.charts.ensure_plotly
+from .business.charts import ensure_plotly as _biz_ensure_plotly
 
+def _ensure_plotly():
+    return _biz_ensure_plotly(colorize)
+
+
+# Moved to business.charts.generate_interactive_plot
+from .business.charts import generate_interactive_plot as _biz_generate_interactive_plot
 
 def _generate_interactive_plot(
     data: pd.DataFrame,
@@ -3065,150 +1717,21 @@ def _generate_interactive_plot(
     satellite_codes: Optional[set[str]] = None,
     default_visible_codes: Optional[set[str]] = None,
 ) -> Optional[Path]:
-    if data.empty:
-        print(colorize("数据为空，无法生成图表。", "warning"))
-        return None
-    go = _ensure_plotly()
-    if go is None:
-        print(colorize("plotly 未安装，可尝试执行 `pip install plotly==5.24.0 -i https://pypi.tuna.tsinghua.edu.cn/simple/`（注意命令不要换行）后重试。若依旧失败，可访问 https://pypi.org/project/plotly/#files 手动下载 whl 安装。", "menu_hint"))
-        return None
-    figure = go.Figure()
-    trace_codes = [str(col).upper() for col in data.columns]
-    default_visible = {code.upper() for code in default_visible_codes} if default_visible_codes else None
-
-    start_index: Optional[pd.Timestamp] = data.index.min() if not data.empty else None
-    target_start: Optional[pd.Timestamp] = None
-    if default_visible and data.index.size:
-        col_map = {str(col).upper(): col for col in data.columns}
-        first_indices: List[pd.Timestamp] = []
-        for code in default_visible:
-            column = col_map.get(code)
-            if column is None:
-                continue
-            first_valid = data[column].first_valid_index()
-            if first_valid is not None:
-                first_indices.append(first_valid)
-        if first_indices:
-            target_start = min(first_indices)
-    if target_start is None and not data.empty:
-        non_empty = data.dropna(how="all")
-        if not non_empty.empty:
-            target_start = non_empty.index.min()
-    if target_start is not None and start_index is not None:
-        threshold = pd.Timedelta(days=45)
-        if target_start - start_index <= threshold:
-            data = data[data.index >= target_start]
-    data = data.dropna(how="all")
-
-    trace_codes = [str(col).upper() for col in data.columns]
-    for column, code_upper in zip(data.columns, trace_codes):
-        visible_state: bool | str = True
-        if default_visible and code_upper not in default_visible:
-            visible_state = "legendonly"
-        legend_group = (
-            "CORE" if core_codes and code_upper in core_codes else (
-                "SAT" if satellite_codes and code_upper in satellite_codes else "OTHER"
-            )
-        )
-        figure.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data[column],
-                mode="lines",
-                name=_format_label(column),
-                legendgroup=legend_group,
-                line={"width": _PLOT_LINE_WIDTH},
-                visible=visible_state,
-            )
-        )
-    buttons: List[dict] = []
-    all_visible = [True] * len(trace_codes)
-    buttons.append(
-        {
-            "label": "全部",
-            "method": "update",
-            "args": [{"visible": all_visible}],
-        }
+    return _biz_generate_interactive_plot(
+        data,
+        title,
+        yaxis_title,
+        output_dir,
+        filename,
+        invert_y=invert_y,
+        core_codes=core_codes,
+        satellite_codes=satellite_codes,
+        default_visible_codes=default_visible_codes,
+        format_label_func=_format_label,
+        plot_template=_PLOT_TEMPLATE,
+        line_width=_PLOT_LINE_WIDTH,
+        colorize_func=colorize,
     )
-    if default_visible:
-        default_mask = [code in default_visible for code in trace_codes]
-        if any(default_mask) and any(v is False for v in default_mask):
-            buttons.append(
-                {
-                    "label": "前 6",
-                    "method": "update",
-                    "args": [{"visible": default_mask}],
-                }
-            )
-    if core_codes:
-        core_visible = [code in core_codes for code in trace_codes]
-        if any(core_visible):
-            buttons.append(
-                {
-                    "label": "仅核心",
-                    "method": "update",
-                    "args": [{"visible": core_visible}],
-                }
-            )
-    if satellite_codes:
-        sat_visible = [code in satellite_codes for code in trace_codes]
-        if any(sat_visible):
-            buttons.append(
-                {
-                    "label": "仅卫星",
-                    "method": "update",
-                    "args": [{"visible": sat_visible}],
-                }
-            )
-    other_visible = [
-        code not in (core_codes or set()) and code not in (satellite_codes or set())
-        for code in trace_codes
-    ]
-    if any(other_visible):
-        buttons.append(
-            {
-                "label": "仅其他",
-                "method": "update",
-                "args": [{"visible": other_visible}],
-            }
-        )
-    legend_height_padding = max(0, len(trace_codes) - 12) * 22
-    figure.update_layout(
-        title=title,
-        xaxis_title="日期",
-        yaxis_title=yaxis_title,
-        hovermode="x unified",
-        template=_PLOT_TEMPLATE,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            itemwidth=110,
-            groupclick="toggleitem",
-            traceorder="grouped",
-        ),
-        height=650 + legend_height_padding,
-        margin=dict(l=60, r=30, t=80, b=60 + min(legend_height_padding, 120)),
-        updatemenus=[
-            {
-                "type": "buttons",
-                "direction": "right",
-                "x": 0,
-                "y": 1.18,
-                "showactive": False,
-                "buttons": buttons,
-            }
-        ] if len(buttons) > 1 else None,
-    )
-    figure.update_layout(legend_title_text="图例 (点击可隐藏/显示单个 ETF)")
-    if invert_y:
-        figure.update_yaxes(autorange="reversed")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / filename
-    figure.write_html(str(path), include_plotlyjs="cdn")
-    return path
 
 
 def _maybe_open_browser(path: Path) -> None:
@@ -3221,6 +1744,9 @@ def _maybe_open_browser(path: Path) -> None:
             print(colorize(f"无法打开浏览器: {exc}", "danger"))
 
 
+# Moved to business.reports (114 lines)
+from .business import build_result_payload as _business_build_result_payload
+
 def _build_result_payload(
     result,
     config: AnalysisConfig,
@@ -3228,114 +1754,18 @@ def _build_result_payload(
     preset: AnalysisPreset | None,
     lang: str,
 ) -> dict:
-    summary_df = result.summary.copy()
-    if "trade_date" in summary_df.columns:
-        summary_df["trade_date"] = summary_df["trade_date"].apply(
-            lambda value: value.isoformat() if hasattr(value, "isoformat") else str(value)
-        )
-    summary_json = json.loads(
-        summary_df.to_json(orient="records", force_ascii=False)
+    return _business_build_result_payload(
+        result,
+        config,
+        momentum_config,
+        preset,
+        lang,
+        collect_alerts_func=_collect_alerts,
+        build_gate_entries_func=_build_strategy_gate_entries,
+        max_series_export=MAX_SERIES_EXPORT,
     )
 
-    correlation_df = result.correlation.round(4)
-    correlation_json = json.loads(correlation_df.to_json(force_ascii=False))
-
-    momentum_series = result.momentum_scores.tail(MAX_SERIES_EXPORT).reset_index()
-    if not momentum_series.empty:
-        momentum_series.rename(columns={momentum_series.columns[0]: "date"}, inplace=True)
-        momentum_series["date"] = momentum_series["date"].astype(str)
-    else:
-        momentum_series["date"] = []
-    momentum_json = json.loads(
-        momentum_series.to_json(orient="records", force_ascii=False)
-    )
-
-    rank_series = result.rank_history.tail(MAX_SERIES_EXPORT).reset_index()
-    if not rank_series.empty:
-        rank_series.rename(columns={rank_series.columns[0]: "date"}, inplace=True)
-        rank_series["date"] = rank_series["date"].astype(str)
-    else:
-        rank_series["date"] = []
-    rank_json = json.loads(
-        rank_series.to_json(orient="records", force_ascii=False)
-    )
-
-    stability_series = result.stability_scores.tail(MAX_SERIES_EXPORT).reset_index()
-    if not stability_series.empty:
-        stability_series.rename(columns={stability_series.columns[0]: "date"}, inplace=True)
-        stability_series["date"] = stability_series["date"].astype(str)
-    else:
-        stability_series["date"] = []
-    stability_json = json.loads(
-        stability_series.to_json(orient="records", force_ascii=False)
-    )
-
-    meta: dict = {
-        "start": config.start_date,
-        "end": config.end_date,
-        "etfs": list(config.etfs),
-        "exclude": list(config.exclude),
-        "etf_count": len(result.summary),
-        "momentum_windows": list(momentum_config.windows),
-        "momentum_weights": list(momentum_config.weights)
-        if momentum_config.weights is not None
-        else None,
-        "corr_window": config.corr_window,
-        "chop_window": config.chop_window,
-        "trend_window": config.trend_window,
-        "rank_lookback": config.rank_change_lookback,
-        "bundle_path": str(config.bundle_path) if config.bundle_path else None,
-        "output_dir": str(config.output_dir),
-        "make_plots": config.make_plots,
-        "runtime_seconds": result.runtime_seconds,
-        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
-        "lang": lang,
-        "plot_paths": [str(path) for path in result.plot_paths],
-        "momentum_percentile_lookback": config.momentum_percentile_lookback,
-        "momentum_significance_threshold": config.momentum_significance_threshold,
-        "trend_consistency_adx_threshold": config.trend_consistency_adx_threshold,
-        "trend_consistency_chop_threshold": config.trend_consistency_chop_threshold,
-        "trend_consistency_fast_span": config.trend_consistency_fast_span,
-        "trend_consistency_slow_span": config.trend_consistency_slow_span,
-        "stability_method": config.stability_method,
-        "stability_window": config.stability_window,
-        "stability_top_n": config.stability_top_n,
-        "stability_weight": config.stability_weight,
-    }
-    if preset:
-        meta["analysis_preset"] = asdict(preset)
-    market_snapshot = getattr(result, "market_snapshot", None)
-    if market_snapshot:
-        snapshot = dict(market_snapshot)
-        trade_date = snapshot.get("trade_date")
-        if hasattr(trade_date, "isoformat"):
-            snapshot["trade_date"] = trade_date.isoformat()
-        meta["market_snapshot"] = snapshot
-    gate_entries = _build_strategy_gate_entries(result, lang)
-    if gate_entries:
-        meta["strategy_gates"] = [
-            {"text": text, "style": style} for text, style in gate_entries
-        ]
-    momentum_payload = asdict(momentum_config)
-    momentum_payload["windows"] = list(momentum_payload["windows"])
-    if momentum_payload.get("weights") is not None:
-        momentum_payload["weights"] = list(momentum_payload["weights"])
-    meta["momentum_config"] = momentum_payload
-
-    alerts = _collect_alerts(result)
-
-    return {
-        "meta": meta,
-        "summary": summary_json,
-        "correlation": correlation_json,
-        "series": {
-            "momentum_scores": momentum_json,
-            "rank_history": rank_json,
-            "stability_scores": stability_json,
-        },
-        "alerts": alerts,
-    }
-
+# Old implementation removed (114 lines)
 
 def _render_text_report(
     result,
@@ -3437,6 +1867,103 @@ def _render_text_report(
             f"参数: Corr {config.corr_window} / Chop {config.chop_window} / 趋势 {config.trend_window} / 回溯 {config.rank_change_lookback}",
             "menu_hint",
         )
+        # 建议持仓（基于当前简易回测规则的当期持仓预览）
+        try:
+            from .business.backtest import select_assets_with_constraints as _suggest_select
+            # 准备当期数据（对齐动量与价格的最新有效日期）
+            close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()}).sort_index().dropna(how="all")
+            momentum_df = result.momentum_scores
+            common_dates = close_df.index.intersection(momentum_df.index)
+            if len(common_dates) > 0:
+                latest = common_dates[-1]
+                scores = momentum_df.loc[latest].dropna()
+                # 使用最新快照中的“动量分位数”（单值），按代码对齐
+                percentiles = None
+                if result.summary is not None and not result.summary.empty and "momentum_percentile" in result.summary.columns:
+                    percentiles = result.summary.set_index("etf")["momentum_percentile"].reindex(scores.index)
+                # 相关性矩阵兼容
+                corr = getattr(result, "correlation_matrix", None)
+                if corr is None:
+                    corr = getattr(result, "correlation", None)
+                # 规则：Top2 等权，阈值≥60%，相关性过滤启用；若筛不出，退回简单 TopN
+                top_n_preview = 2
+                min_pct = 0.6
+                selected: list[str] = []
+                if percentiles is not None:
+                    selected, _ = _suggest_select(
+                        scores,
+                        percentiles,
+                        corr,
+                        top_n_preview,
+                        min_percentile=min_pct,
+                        max_correlation=0.85,
+                    )
+                if not selected:
+                    selected = scores.sort_values(ascending=False).head(top_n_preview).index.tolist()
+                # 仅保留存在于价格列中的代码
+                selected = [c for c in selected if c in close_df.columns]
+                # 输出：核心底座 + 卫星（当期）
+                # 市场状态与卫星腿数
+                market_code = "510300.XSHG" if "510300.XSHG" in close_df.columns else None
+                above_ma = False
+                in_trend = False
+                if market_code is not None:
+                    ma200_series = close_df[market_code].rolling(window=200, min_periods=1).mean()
+                    above_ma = bool(close_df[market_code].loc[latest] > ma200_series.loc[latest]) if latest in close_df.index else False
+                    chop_dict = getattr(result, "chop", None)
+                    if chop_dict and market_code in chop_dict:
+                        chop_series = chop_dict[market_code]
+                        if latest in chop_series.index:
+                            in_trend = chop_series.loc[latest] < 38.0
+                        else:
+                            in_trend = above_ma
+                    else:
+                        in_trend = above_ma
+                sat_top_n = 2 if (above_ma and in_trend) else 1
+                sat_weight = 0.20 if sat_top_n == 2 else 0.15
+
+                if lang == "zh":
+                    add("=== 建议持仓（当期） ===", "heading")
+                    add("核心底座（长期底座，低波+低成本，总计60%）:", "menu_hint")
+                else:
+                    add("=== Suggested Holdings (Current) ===", "heading")
+                    add("Core base (low vol + low cost, total 60%):", "menu_hint")
+                core_map_disp = {
+                    "510300.XSHG": 0.20,
+                    "510880.XSHG": 0.10,
+                    "511360.XSHG": 0.15,
+                    "518880.XSHG": 0.10,
+                    "513500.XSHG": 0.05,
+                }
+                core_parts = []
+                for code, w in core_map_disp.items():
+                    if code in close_df.columns:
+                        core_parts.append(f"{_format_label(code)} ({code}): {w:.1%}")
+                if core_parts:
+                    add("; ".join(core_parts), "menu_text")
+                else:
+                    add("（当前券池未包含核心底座标的）" if lang == "zh" else "(No core base instruments in current universe)", "warning")
+
+                if lang == "zh":
+                    add("卫星（当期）:", "menu_hint")
+                else:
+                    add("Satellites (current):", "menu_hint")
+                # 根据市场状态调整卫星腿数与权重
+                top_n_now = sat_top_n
+                if selected:
+                    sel_now = selected[:top_n_now]
+                    if sel_now:
+                        parts = [f"{_format_label(code)} ({code}): {sat_weight:.1%}" for code in sel_now]
+                        add("; ".join(parts), "menu_text")
+                    else:
+                        add("无符合条件的持仓候选（已退回简单TopN仍为空）" if lang == "zh" else "No eligible holdings (even after TopN fallback).", "warning")
+                else:
+                    add("无符合条件的持仓候选（已退回简单TopN仍为空）" if lang == "zh" else "No eligible holdings (even after TopN fallback).", "warning")
+                add("", None)
+        except Exception:
+            # 建议持仓不是关键路径，任何异常忽略
+            pass
+
         add("", None)
         render_strategy_gates()
         add("=== 动量汇总 ===", "heading")
@@ -3491,6 +2018,9 @@ def _render_text_report(
     return "\n".join(lines).strip()
 
 
+# Moved to business.reports (113 lines)
+from .business import render_markdown_report as _biz_render_md_report
+
 def _render_markdown_report(
     result,
     config: AnalysisConfig,
@@ -3498,113 +2028,18 @@ def _render_markdown_report(
     preset: AnalysisPreset | None,
     lang: str,
 ) -> str:
-    lines: List[str] = []
-    title = "# 动量分析报告" if lang == "zh" else "# Momentum Analysis Report"
-    lines.append(title)
-
-    alerts = _collect_alerts(result)
-
-    start_text = config.start_date or ("最早可用" if lang == "zh" else "Earliest")
-    end_text = config.end_date or ("最新交易日" if lang == "zh" else "Latest available")
-    lines.append("")
-    if lang == "zh":
-        lines.append(f"- 分析区间：{start_text} → {end_text}")
-        lines.append(f"- 券池数量：{len(result.summary)}")
-        lines.append(
-            f"- 动量窗口：{', '.join(str(w) for w in momentum_config.windows)}"
-        )
-        if momentum_config.weights:
-            lines.append(
-                f"- 动量权重：{', '.join(f'{w:.2f}' for w in momentum_config.weights)}"
-            )
-        lines.append(
-            f"- 参数：Corr {config.corr_window} / Chop {config.chop_window} / 趋势 {config.trend_window} / 回溯 {config.rank_change_lookback}"
-        )
-        if preset:
-            lines.append(
-                f"- 分析预设：{preset.name} [{preset.key}] - {preset.description}"
-            )
-    else:
-        lines.append(f"- Range: {start_text} → {end_text}")
-        lines.append(f"- Universe size: {len(result.summary)} ETFs")
-        lines.append(
-            f"- Momentum windows: {', '.join(str(w) for w in momentum_config.windows)}"
-        )
-        if momentum_config.weights:
-            lines.append(
-                f"- Momentum weights: {', '.join(f'{w:.2f}' for w in momentum_config.weights)}"
-            )
-        lines.append(
-            f"- Parameters: Corr {config.corr_window} / Chop {config.chop_window} / Trend {config.trend_window} / Rank lookback {config.rank_change_lookback}"
-        )
-        if preset:
-            lines.append(
-                f"- Preset: {preset.name} [{preset.key}] - {preset.description}"
-            )
-
-    gate_entries = _build_strategy_gate_entries(result, lang)
-    if gate_entries:
-        icon_map = {
-            "warning": "⚠️ ",
-            "menu_hint": "ℹ️ ",
-            "menu_text": "",
-        }
-        lines.append("")
-        lines.append("## 策略闸口" if lang == "zh" else "## Strategy Gates")
-        for text, style in gate_entries:
-            prefix = icon_map.get(style, "")
-            lines.append(f"- {prefix}{text}")
-
-    lines.append("")
-    lines.append("## Summary")
-    lines.append(_summary_to_markdown(result.summary, lang))
-    lines.append("")
-    lines.append("## Correlation")
-    lines.append(_correlation_to_markdown(result.correlation.round(2), lang))
-    lines.append("")
-
-    if alerts.get("momentum_rank_drops") or alerts.get("high_correlation_pairs"):
-        lines.append("## 预警提示" if lang == "zh" else "## Alerts")
-        if alerts.get("momentum_rank_drops"):
-            if lang == "zh":
-                lines.append("- 动量排名连续走弱：")
-                for item in alerts["momentum_rank_drops"]:
-                    lines.append(
-                        f"  - {item['label']}：{item['start_rank']} → {item['end_rank']}，连续 {item['weeks']} 周下滑"
-                    )
-            else:
-                lines.append("- Momentum ranks weakening:")
-                for item in alerts["momentum_rank_drops"]:
-                    lines.append(
-                        f"  - {item['label']} : {item['start_rank']} → {item['end_rank']} over {item['weeks']} consecutive weeks"
-                    )
-        if alerts.get("high_correlation_pairs"):
-            threshold_text = f"{_CORRELATION_ALERT_THRESHOLD:.2f}"
-            if lang == "zh":
-                lines.append(f"- 高相关性（ρ ≥ {threshold_text}）：")
-                for item in alerts["high_correlation_pairs"]:
-                    lines.append(
-                        f"  - {item['label_a']} ↔ {item['label_b']} : {item['value']:.2f}"
-                    )
-            else:
-                lines.append(f"- High correlations (ρ ≥ {threshold_text}):")
-                for item in alerts["high_correlation_pairs"]:
-                    lines.append(
-                        f"  - {item['label_a']} ↔ {item['label_b']} : {item['value']:.2f}"
-                    )
-        lines.append("")
-
-    if lang == "zh":
-        lines.append(f"运行耗时：{result.runtime_seconds:.2f} 秒")
-    else:
-        lines.append(f"Runtime: {result.runtime_seconds:.2f} seconds")
-    if result.plot_paths:
-        lines.append("")
-        lines.append("## 图表 / Plots")
-        for path in result.plot_paths:
-            lines.append(f"- {path}")
-
-    return "\n".join(lines).strip()
+    return _biz_render_md_report(
+        result,
+        config,
+        momentum_config,
+        preset,
+        lang,
+        summary_to_md_func=_summary_to_markdown,
+        correlation_to_md_func=lambda c, l: _correlation_to_markdown(c, l),
+        build_gate_entries_func=_build_strategy_gate_entries,
+        collect_alerts_func=_collect_alerts,
+        correlation_threshold=_CORRELATION_ALERT_THRESHOLD,
+    )
 
 
 def _print_presets() -> None:
@@ -3793,39 +2228,14 @@ def _show_preset_settings_menu() -> None:
         print(colorize("无效指令，请重新输入。", "warning"))
 
 
+# Moved to business.analysis_presets
+from .business import print_analysis_presets as _business_print_analysis_presets
+
 def _print_analysis_presets() -> None:
-    print(colorize("可用分析预设：", "heading"))
-    for idx, preset in enumerate(ANALYSIS_PRESETS.values(), start=1):
-        notes = f"（{preset.notes}）" if preset.notes else ""
-        title = colorize(
-            f" {idx:>2}. {preset.name} [{preset.key}] - {preset.description}{notes}",
-            "menu_text",
-        )
-        win_str = ",".join(str(w) for w in preset.momentum_windows)
-        weight_str = (
-            ",".join(f"{w:.2f}" for w in preset.momentum_weights)
-            if preset.momentum_weights
-            else "等权"
-        )
-        skip_str = (
-            ",".join(str(s) for s in preset.momentum_skip_windows)
-            if preset.momentum_skip_windows
-            else "0"
-        )
-        detail = colorize(
-            "    "
-            + f"窗口 {win_str} | 剔除 {skip_str} | 权重 {weight_str} | Corr {preset.corr_window} | "
-            + f"Chop {preset.chop_window} | 趋势 {preset.trend_window} | 排名回溯 {preset.rank_lookback}",
-            "menu_hint",
-        )
-        print(title)
-        print(detail)
+    _business_print_analysis_presets(ANALYSIS_PRESETS)
 
 
-def _analysis_preset_status_label(key: str) -> str:
-    if key in DEFAULT_ANALYSIS_PRESETS:
-        return "覆盖" if has_custom_analysis_override(key) else "内置"
-    return "自定义"
+from .analysis_presets import preset_status_label as _analysis_preset_status_label
 
 
 def _select_analysis_preset_key(prompt: str) -> Optional[str]:
@@ -3850,29 +2260,11 @@ def _select_analysis_preset_key(prompt: str) -> Optional[str]:
     return None
 
 
+# Moved to business.analysis_presets
+from .business import print_analysis_preset_details as _business_print_analysis_preset_details
+
 def _print_analysis_preset_details(key: str, preset: AnalysisPreset) -> None:
-    win_str = ",".join(str(w) for w in preset.momentum_windows)
-    weight_str = (
-        ",".join(f"{w:.2f}" for w in preset.momentum_weights)
-        if preset.momentum_weights
-        else "等权"
-    )
-    skip_str = (
-        ",".join(str(s) for s in preset.momentum_skip_windows)
-        if preset.momentum_skip_windows
-        else "0"
-    )
-    notes = preset.notes or "-"
-    print(colorize(f"预设：{preset.name} [{key}]（{_analysis_preset_status_label(key)}）", "heading"))
-    print(colorize(f"  描述: {preset.description}", "menu_text"))
-    print(
-        colorize(
-            f"  窗口: {win_str} | 剔除: {skip_str} | 权重: {weight_str} | Corr {preset.corr_window} | "
-            f"Chop {preset.chop_window} | 趋势 {preset.trend_window} | 回溯 {preset.rank_lookback}",
-            "menu_hint",
-        )
-    )
-    print(colorize(f"  备注: {notes}", "menu_hint"))
+    _business_print_analysis_preset_details(key, preset, status_label_func=_analysis_preset_status_label)
 
 
 def _interactive_edit_analysis_preset_entry(existing_key: Optional[str] = None) -> None:
@@ -4156,420 +2548,129 @@ def _install_optional_dependencies() -> None:
         )
 
 
-def _configure_cli_theme() -> None:
-    while True:
-        current_info = _CLI_THEME_INFO.get(_STYLE_THEME, {"label": _STYLE_THEME})
-        header_lines = [
-            "",
-            colorize(
-                f"当前主题: {current_info.get('label', _STYLE_THEME)} ({_STYLE_THEME})",
-                "menu_text",
-            ),
-        ]
-        if current_info.get("description"):
-            header_lines.append(colorize(f"说明: {current_info['description']}", "menu_hint"))
-        options: List[Dict[str, Any]] = []
-        default_key = "1"
-        for idx, key in enumerate(_CLI_THEME_ORDER, start=1):
-            info = _CLI_THEME_INFO.get(key, {"label": key})
-            marker = "✓" if key == _STYLE_THEME else " "
-            label = info.get("label", key)
-            extra_lines: List[str] = []
-            if info.get("description"):
-                extra_lines.append(colorize(f"     {info['description']}", "menu_hint"))
-            extra_lines.append(_render_theme_sample(key))
-            option = {
-                "key": key,
-                "display": str(idx),
-                "label": f"[{marker}] {label} ({key})",
-                "extra_lines": extra_lines,
-            }
-            options.append(option)
-            if key == _STYLE_THEME:
-                default_key = key
-        options.append({"key": "0", "label": "返回上级菜单"})
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 终端主题与色彩 ─" + "─" * 18,
-            header_lines=header_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key=default_key,
-        )
-        if choice in {"0", "__escape__"}:
-            return
-        selected: Optional[str] = None
-        if choice in _CLI_THEMES:
-            selected = choice
-        elif choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(_CLI_THEME_ORDER):
-                selected = _CLI_THEME_ORDER[idx - 1]
-        if not selected:
-            print(colorize("输入无效，请重新选择。", "warning"))
-            continue
-        if selected == _STYLE_THEME:
-            print(colorize("当前已经是该主题。", "info"))
-            continue
-        if _apply_cli_theme(selected):
-            info = _CLI_THEME_INFO.get(selected, {"label": selected})
-            print(colorize(f"已切换到 {info.get('label', selected)} 主题。", "value_positive"))
+# Moved to business.config (57 lines)
+from .business import configure_cli_theme_interactive as _biz_config_cli_theme
 
+def _configure_cli_theme() -> None:
+    _biz_config_cli_theme(
+        current_theme=_STYLE_THEME,
+        theme_order=_CLI_THEME_ORDER,
+        theme_info=_CLI_THEME_INFO,
+        available_themes=_CLI_THEMES,
+        apply_theme_func=_apply_cli_theme,
+        render_sample_func=_render_theme_sample,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+    )
+
+
+# Moved to business.config (72 lines)
+from .business import configure_plot_style_interactive as _biz_config_plot_style
 
 def _configure_plot_style() -> None:
     global _PLOT_TEMPLATE, _PLOT_LINE_WIDTH
-    templates = [
-        "plotly_white",
-        "plotly_dark",
-        "presentation",
-        "ggplot2",
-        "seaborn",
-        "simple_white",
-    ]
-    print(colorize("当前图表样式：", "heading"))
-    print(colorize(f"主题: {_PLOT_TEMPLATE}", "menu_text"))
-    print(colorize(f"曲线宽度: {_PLOT_LINE_WIDTH}", "menu_text"))
-    current_theme = _CLI_THEME_INFO.get(_STYLE_THEME, {"label": _STYLE_THEME})
-    print(
-        colorize(
-            f"终端主题: {current_theme.get('label', _STYLE_THEME)} ({_STYLE_THEME})",
-            "menu_hint",
-        )
-    )
-    while True:
-        options: List[Dict[str, Any]] = []
-        default_key = _PLOT_TEMPLATE
-        for idx, template in enumerate(templates, start=1):
-            marker = "✓" if template == _PLOT_TEMPLATE else " "
-            options.append(
-                {
-                    "key": template,
-                    "display": str(idx),
-                    "label": f"[{marker}] {template}",
-                }
-            )
-        options.append({"key": "0", "label": "返回上级菜单"})
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 图表样式设置 ─" + "─" * 18,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key=default_key,
-        )
-        if choice in {"0", "__escape__"}:
-            break
-        if choice in templates:
-            _PLOT_TEMPLATE = choice
-            _update_setting("plot_template", _PLOT_TEMPLATE)
-            print(colorize(f"已切换到 {_PLOT_TEMPLATE} 主题。", "value_positive"))
-            break
-        if choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(templates):
-                _PLOT_TEMPLATE = templates[idx - 1]
-                _update_setting("plot_template", _PLOT_TEMPLATE)
-                print(colorize(f"已切换到 {_PLOT_TEMPLATE} 主题。", "value_positive"))
-                break
-        print(colorize("输入无效，请重新选择。", "warning"))
-    while True:
-        raw = input(colorize("设置曲线宽度（示例 1.5，直接回车保持当前值）: ", "prompt")).strip()
-        if not raw:
-            break
-        try:
-            width = float(raw)
-        except ValueError:
-            print(colorize("请输入数值，例如 1.5。", "warning"))
-            continue
-        if width <= 0:
-            print(colorize("宽度需为正数。", "warning"))
-            continue
-        _PLOT_LINE_WIDTH = width
-        _update_setting("plot_line_width", _PLOT_LINE_WIDTH)
-        print(colorize(f"曲线宽度已更新为 {_PLOT_LINE_WIDTH}。", "value_positive"))
-        break
 
+    def set_template(template: str) -> None:
+        global _PLOT_TEMPLATE
+        _PLOT_TEMPLATE = template
+        _update_setting(_SETTINGS, "plot_template", _PLOT_TEMPLATE)
+
+    def set_line_width(width: float) -> None:
+        global _PLOT_LINE_WIDTH
+        _PLOT_LINE_WIDTH = width
+        _update_setting(_SETTINGS, "plot_line_width", _PLOT_LINE_WIDTH)
+
+    _biz_config_plot_style(
+        current_template=_PLOT_TEMPLATE,
+        current_line_width=_PLOT_LINE_WIDTH,
+        current_cli_theme=_STYLE_THEME,
+        cli_theme_info=_CLI_THEME_INFO,
+        set_template_func=set_template,
+        set_line_width_func=set_line_width,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
+
+
+# Moved to business.config (44 lines)
+from .business import configure_correlation_threshold_interactive as _biz_config_corr_threshold
 
 def _configure_correlation_threshold() -> None:
-    current = _CORRELATION_ALERT_THRESHOLD
-    presets = {
-        "1": 0.6,
-        "2": 0.8,
-        "3": 0.85,
-    }
-    options = [
-        {"key": "1", "label": "设为 0.60"},
-        {"key": "2", "label": "设为 0.80"},
-        {"key": "3", "label": "设为 0.85"},
-        {"key": "4", "label": "自定义输入"},
-        {"key": "0", "label": "返回上级菜单"},
-    ]
-    header_lines = [
-        "",
-        colorize(f"当前阈值: {current:.2f}", "menu_text"),
-    ]
-    choice = _prompt_menu_choice(
-        options,
-        title="┌─ 相关矩阵阈值 ─" + "─" * 18,
-        header_lines=header_lines,
-        hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-        default_key="0",
-    ).strip()
-    if not choice or choice in {"0", "__escape__"}:
-        return
-    if choice in presets:
-        new_value = presets[choice]
-    elif choice == "4":
-        raw = input(colorize("请输入 0-1 之间的小数，例如 0.75: ", "prompt")).strip()
-        try:
-            new_value = float(raw)
-        except ValueError:
-            print(colorize("输入无效，阈值保持不变。", "warning"))
-            return
-    else:
-        print(colorize("输入无效，阈值保持不变。", "warning"))
-        return
-    validated = _validate_corr_threshold(new_value)
-    if validated != new_value:
-        print(colorize("输入超出范围，已自动调整到有效区间。", "warning"))
-    updated = _set_correlation_alert_threshold(validated)
-    print(colorize(f"相关矩阵预警阈值已更新为 {updated:.2f}。", "value_positive"))
+    _biz_config_corr_threshold(
+        current_threshold=_CORRELATION_ALERT_THRESHOLD,
+        validate_func=_validate_corr_threshold,
+        set_threshold_func=_set_correlation_alert_threshold,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
 
+
+# Moved to business.config (63 lines)
+from .business import configure_signal_thresholds_interactive as _biz_config_signal_thresholds
 
 def _configure_signal_thresholds() -> None:
-    print("\n" + colorize("┌─ 动量与趋势阈值 ─" + "─" * 16, "divider"))
-    print(colorize(
-        f"动量分位回溯天数: {_MOMENTUM_SIGNIFICANCE_LOOKBACK} · 分位阈值: {_MOMENTUM_SIGNIFICANCE_THRESHOLD:.2f}",
-        "menu_text",
-    ))
-    print(colorize(
-        f"趋势一致条件: ADX>{_TREND_CONSISTENCY_ADX:.1f} · Chop<{_TREND_CONSISTENCY_CHOP:.1f} · EMA{_TREND_FAST_SPAN}/EMA{_TREND_SLOW_SPAN}",
-        "menu_hint",
-    ))
+    _biz_config_signal_thresholds(
+        momentum_lookback=_MOMENTUM_SIGNIFICANCE_LOOKBACK,
+        momentum_threshold=_MOMENTUM_SIGNIFICANCE_THRESHOLD,
+        trend_adx=_TREND_CONSISTENCY_ADX,
+        trend_chop=_TREND_CONSISTENCY_CHOP,
+        trend_fast_span=_TREND_FAST_SPAN,
+        trend_slow_span=_TREND_SLOW_SPAN,
+        set_momentum_lookback_func=_set_momentum_significance_lookback,
+        set_momentum_threshold_func=_set_momentum_significance_threshold,
+        set_trend_adx_func=_set_trend_consistency_adx,
+        set_trend_chop_func=_set_trend_consistency_chop,
+        set_trend_fast_span_func=_set_trend_fast_span,
+        set_trend_slow_span_func=_set_trend_slow_span,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
 
-    def _update_int(prompt: str, setter, current_value: int) -> None:
-        raw_local = input(colorize(prompt, "prompt")).strip()
-        if not raw_local:
-            return
-        if not raw_local.isdigit():
-            print(colorize("请输入正整数。", "warning"))
-            return
-        value_local = int(raw_local)
-        updated_value = setter(value_local)
-        print(colorize(f"已更新为 {updated_value}", "value_positive"))
 
-    def _update_float(prompt: str, setter) -> None:
-        raw_local = input(colorize(prompt, "prompt")).strip()
-        if not raw_local:
-            return
-        try:
-            value_local = float(raw_local)
-        except ValueError:
-            print(colorize("请输入数值。", "warning"))
-            return
-        updated_value = setter(value_local)
-        print(colorize(f"已更新为 {updated_value:.2f}", "value_positive"))
-
-    _update_int(
-        f"动量分位回溯天数（当前 {_MOMENTUM_SIGNIFICANCE_LOOKBACK}）: ",
-        lambda v: _set_momentum_significance_lookback(v),
-        _MOMENTUM_SIGNIFICANCE_LOOKBACK,
-    )
-    _update_float(
-        f"动量分位阈值 0-0.99（当前 {_MOMENTUM_SIGNIFICANCE_THRESHOLD:.2f}）: ",
-        lambda v: _set_momentum_significance_threshold(v),
-    )
-    _update_float(
-        f"Trend ADX 阈值（当前 {_TREND_CONSISTENCY_ADX:.1f}）: ",
-        lambda v: _set_trend_consistency_adx(v),
-    )
-    _update_float(
-        f"Trend Chop 阈值（当前 {_TREND_CONSISTENCY_CHOP:.1f}）: ",
-        lambda v: _set_trend_consistency_chop(v),
-    )
-    _update_int(
-        f"EMA 快线跨度（当前 {_TREND_FAST_SPAN}）: ",
-        lambda v: _set_trend_fast_span(v),
-        _TREND_FAST_SPAN,
-    )
-    _update_int(
-        f"EMA 慢线跨度（当前 {_TREND_SLOW_SPAN}）: ",
-        lambda v: _set_trend_slow_span(v),
-        _TREND_SLOW_SPAN,
-    )
-    print(colorize("阈值设置已更新。后续分析将应用新的判定条件。", "menu_hint"))
-
+# Moved to business.config (103 lines)
+from .business import configure_stability_settings_interactive as _biz_config_stability
 
 def _configure_stability_settings() -> None:
-    while True:
-        method_label = (
-            "Top-10 存活率"
-            if _STABILITY_METHOD == "presence_ratio"
-            else "Kendall-τ 排名连贯度"
-        )
-        header_lines = [
-            "",
-            colorize(
-                f"当前方法: {method_label} ({_STABILITY_METHOD})",
-                "menu_text",
-            ),
-            colorize(
-                f"窗口 {_STABILITY_WINDOW} 日 · Top{_STABILITY_TOP_N} · 权重 {_STABILITY_WEIGHT:.2f}",
-                "menu_hint",
-            ),
-        ]
-        options = [
-            {"key": "1", "label": "切换稳定度方法"},
-            {"key": "2", "label": "调整稳定度窗口"},
-            {"key": "3", "label": "设置 Top-N 门槛"},
-            {"key": "4", "label": "设置稳定度权重"},
-            {"key": "0", "label": "返回上级菜单"},
-        ]
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 稳定度参数设置 ─" + "─" * 14,
-            header_lines=header_lines,
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="0",
-        )
-        if choice in {"0", "__escape__"}:
-            return
-        if choice == "1":
-            method_options = [
-                {
-                    "key": "presence_ratio",
-                    "display": "1",
-                    "label": "Top-10 存活率 (presence_ratio)",
-                },
-                {
-                    "key": "kendall",
-                    "display": "2",
-                    "label": "Kendall-τ 排名连贯度 (kendall)",
-                },
-            ]
-            selected = _prompt_menu_choice(
-                method_options,
-                title="┌─ 选择稳定度方法 ─" + "─" * 12,
-                header_lines=[""],
-                hint="↑/↓ 选择 · 回车确认",
-                default_key=_STABILITY_METHOD,
-                allow_escape=True,
-            )
-            if selected not in {"__escape__", ""}:
-                updated = _set_stability_method(selected)
-                method_label = (
-                    "Top-10 存活率" if updated == "presence_ratio" else "Kendall-τ 排名连贯度"
-                )
-                print(colorize(f"已切换稳定度方法为 {method_label} ({updated}).", "value_positive"))
-            continue
-        if choice == "2":
-            raw = input(
-                colorize(
-                    f"稳定度窗口（日）（当前 {_STABILITY_WINDOW}）: ", "prompt"
-                )
-            ).strip()
-            if raw:
-                if raw.isdigit():
-                    updated = _set_stability_window(int(raw))
-                    print(colorize(f"稳定度窗口已更新为 {updated} 日。", "value_positive"))
-                else:
-                    print(colorize("请输入正整数。", "warning"))
-            continue
-        if choice == "3":
-            raw = input(
-                colorize(
-                    f"Top-N 阈值（当前 {_STABILITY_TOP_N}）: ", "prompt"
-                )
-            ).strip()
-            if raw:
-                if raw.isdigit():
-                    updated = _set_stability_top_n(int(raw))
-                    print(colorize(f"Top-N 阈值已更新为 {updated}。", "value_positive"))
-                else:
-                    print(colorize("请输入正整数。", "warning"))
-            continue
-        if choice == "4":
-            raw = input(
-                colorize(
-                    f"稳定度权重 0-1（当前 {_STABILITY_WEIGHT:.2f}）: ", "prompt"
-                )
-            ).strip()
-            if raw:
-                try:
-                    value = float(raw)
-                except ValueError:
-                    print(colorize("请输入数值。", "warning"))
-                    continue
-                updated = _set_stability_weight(value)
-                print(colorize(f"稳定度权重已更新为 {updated:.2f}。", "value_positive"))
-            continue
+    _biz_config_stability(
+        current_method=_STABILITY_METHOD,
+        current_window=_STABILITY_WINDOW,
+        current_top_n=_STABILITY_TOP_N,
+        current_weight=_STABILITY_WEIGHT,
+        set_method_func=_set_stability_method,
+        set_window_func=_set_stability_window,
+        set_top_n_func=_set_stability_top_n,
+        set_weight_func=_set_stability_weight,
+        prompt_menu_choice_func=_prompt_menu_choice,
+        colorize_func=colorize,
+        prompt_input_func=input,
+    )
 
+
+# Moved to business.bundle (72 lines)
+from .business import update_data_bundle_interactive as _biz_update_bundle
 
 def _update_data_bundle() -> None:
     global _LAST_BUNDLE_REFRESH, _LAST_BACKTEST_CONTEXT, _BUNDLE_STATUS_CACHE, _BUNDLE_UPDATE_PROMPTED
-    status = _bundle_status(force_refresh=True)
-    if status.get("state") == "fresh":
-        version_display = status.get("version") or status.get("version_raw") or "最新版本"
-        print(colorize(f"当前数据包 {version_display} 已是最新，无需重新下载。", "info"))
-        _BUNDLE_UPDATE_PROMPTED = False
-        _wait_for_ack()
-        return
-    command = _find_rqalpha_command()
-    if not command:
-        print(colorize("未找到 rqalpha 可执行文件，请先安装或激活环境后再试。", "danger"))
-        _wait_for_ack()
-        return
-    print(colorize("开始下载最新的 RQAlpha 数据包，这可能需要几分钟……", "info"))
-    download_command = command + ["download-bundle"]
-    try:
-        download_result = subprocess.run(
-            download_command, cwd=str(Path.home()), check=False
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(colorize(f"download-bundle 调用失败: {exc}", "danger"))
-        _wait_for_ack()
-        return
-    if download_result.returncode == 0:
+
+    if _BUNDLE_STATUS_CACHE is None:
+        _BUNDLE_STATUS_CACHE = {}
+
+    def on_refresh():
+        global _LAST_BUNDLE_REFRESH, _LAST_BACKTEST_CONTEXT, _BUNDLE_STATUS_CACHE, _BUNDLE_UPDATE_PROMPTED
         _LAST_BUNDLE_REFRESH = dt.datetime.now()
-        bundle_path = Path.home() / ".rqalpha" / "bundle"
-        print(colorize("数据下载完成，分析将基于最新 bundle。", "value_positive"))
-        print(colorize(f"数据路径: {bundle_path}，包含 ETF/股票/指数的日线行情，可回溯到历史最早可用日期。", "menu_hint"))
         _LAST_BACKTEST_CONTEXT = None
         _BUNDLE_STATUS_CACHE = None
         _BUNDLE_UPDATE_PROMPTED = False
-        _wait_for_ack()
-        return
-    printable_dl = " ".join(download_command)
-    print(
-        colorize(
-            f"download-bundle 失败（退出码 {download_result.returncode}）。正在尝试 rqalpha update-bundle……",
-            "warning",
-        )
+
+    _biz_update_bundle(
+        bundle_status_func=lambda force, cache: _bundle_status(force_refresh=force, cache=cache or _BUNDLE_STATUS_CACHE),
+        find_rqalpha_func=_find_rqalpha_command,
+        on_refresh_callback=on_refresh,
+        wait_for_ack_func=_wait_for_ack,
+        colorize_func=colorize,
     )
-    update_command = command + ["update-bundle"]
-    try:
-        update_result = subprocess.run(update_command, cwd=str(Path.home()), check=False)
-    except Exception as exc:  # noqa: BLE001
-        print(colorize(f"update-bundle 调用失败: {exc}", "danger"))
-        _wait_for_ack()
-        return
-    if update_result.returncode == 0:
-        _LAST_BUNDLE_REFRESH = dt.datetime.now()
-        bundle_path = Path.home() / ".rqalpha" / "bundle"
-        print(colorize("数据更新完成，分析将基于最新 bundle。", "value_positive"))
-        print(colorize(f"数据路径: {bundle_path}，包含 ETF/股票/指数的日线行情，可回溯到历史最早可用日期。", "menu_hint"))
-        _LAST_BACKTEST_CONTEXT = None
-        _BUNDLE_STATUS_CACHE = None
-        _BUNDLE_UPDATE_PROMPTED = False
-        _wait_for_ack()
-        return
-    printable_up = " ".join(update_command)
-    print(
-        colorize(
-            "数据更新失败。您可以手动执行以下命令后重试: "
-            f"{printable_dl} 或 {printable_up}",
-            "danger",
-        )
-    )
-    _wait_for_ack()
 
 
 def _normalize_momentum_weights(
@@ -4600,6 +2701,8 @@ def _export_rqalpha_strategy(
     start_date: Optional[str],
     end_date: Optional[str],
     label: str,
+    stability_weight: float = 0.2,
+    stability_window: int = 30,
 ) -> Path:
     clean_universe = sorted({code.upper() for code in universe if code})
     if not clean_universe:
@@ -4651,6 +2754,8 @@ MOMENTUM_WINDOWS = {windows_repr}
 MOMENTUM_WEIGHTS = {weights_repr}
 TOP_N = {capped_top}
 MAX_WINDOW = {max_window}
+STABILITY_WEIGHT = {stability_weight}  # 稳定度权重，降低追高风险
+STABILITY_WINDOW = {stability_window}  # 稳定度观察窗口（交易日）
 
 __config__ = {{
     "base": {{
@@ -4672,9 +2777,13 @@ def init(context):
     context.weights = list(MOMENTUM_WEIGHTS)
     context.top_n = TOP_N
     context.max_window = MAX_WINDOW
+    context.stability_weight = STABILITY_WEIGHT
+    context.stability_window = STABILITY_WINDOW
+    context.rank_history = []  # 用于跟踪排名历史，计算稳定度
     update_universe(context.etfs)
     {schedule_line}
-    logger.info("Initialized with %d ETFs and top_n=%d", len(context.etfs), context.top_n)
+    logger.info("Initialized with %d ETFs, top_n=%d, stability_weight=%.2f",
+                len(context.etfs), context.top_n, context.stability_weight)
 
 
 def _compute_momentum(context, code):
@@ -4693,13 +2802,50 @@ def _compute_momentum(context, code):
 
 
 def rebalance(context, bar_dict):
+    # 1. 计算原始动量得分
     scored = []
     for code in context.etfs:
         score = _compute_momentum(context, code)
         if score is not None:
             scored.append((code, score))
+
+    if not scored:
+        logger.warning("Momentum screen empty; no positions taken.")
+        return
+
+    # 2. 记录当前排名（用于稳定度计算）
     scored.sort(key=lambda item: item[1], reverse=True)
-    targets = [code for code, _ in scored[: context.top_n]]
+    current_ranks = {{code: rank + 1 for rank, (code, _) in enumerate(scored)}}
+    context.rank_history.append(current_ranks)
+
+    # 保持稳定度窗口大小
+    if len(context.rank_history) > context.stability_window:
+        context.rank_history.pop(0)
+
+    # 3. 计算稳定度得分并调整动量
+    if context.stability_weight > 0 and len(context.rank_history) >= 2:
+        adjusted_scores = []
+        for code, mom_score in scored:
+            # 计算该标的在历史窗口内出现在前10的频率
+            appearances_in_top10 = sum(
+                1 for ranks in context.rank_history
+                if code in ranks and ranks[code] <= 10
+            )
+            stability = appearances_in_top10 / len(context.rank_history)
+
+            # 应用稳定度权重调整
+            factor = (1.0 - context.stability_weight) + context.stability_weight * stability
+            adjusted_score = mom_score * factor
+            adjusted_scores.append((code, adjusted_score))
+
+        # 使用调整后的得分重新排序
+        adjusted_scores.sort(key=lambda item: item[1], reverse=True)
+        targets = [code for code, _ in adjusted_scores[: context.top_n]]
+    else:
+        # 不使用稳定度调整
+        targets = [code for code, _ in scored[: context.top_n]]
+
+    # 4. 执行调仓
     current = set(context.portfolio.positions.keys())
     target_set = set(targets)
 
@@ -4707,7 +2853,7 @@ def rebalance(context, bar_dict):
         order_target_percent(code, 0)
 
     if not targets:
-        logger.warning("Momentum screen empty; no positions taken.")
+        logger.warning("No targets after stability adjustment.")
         return
 
     weight = 1.0 / len(targets)
@@ -4720,17 +2866,11 @@ def rebalance(context, bar_dict):
     return destination
 
 
+# Moved to utils.helpers
+from .utils import dedup_codes as _utils_dedup_codes
+
 def _dedup_codes(codes: Iterable[str]) -> List[str]:
-    seen = set()
-    result: List[str] = []
-    for code in codes:
-        if not code:
-            continue
-        upper = code.upper()
-        if upper not in seen:
-            seen.add(upper)
-            result.append(upper)
-    return result
+    return _utils_dedup_codes(codes)
 
 
 def _show_codes(codes: Sequence[str]) -> None:
@@ -4787,86 +2927,34 @@ def _parse_index_list(raw: str, upper_bound: int) -> Optional[List[int]]:
     return sorted(set(indices))
 
 
+# Delegated to ui.prompt_yes_no
+from .ui import prompt_yes_no as _ui_prompt_yes_no
+
 def _prompt_yes_no(question: str, default: bool = True) -> bool:
-    default_label = "是" if default else "否"
-    prompt_text = f"{question} 默认{default_label}，按 y/n 或回车确认: "
+    return _ui_prompt_yes_no(question, default)
 
-    if _supports_interactive_menu():
-        while True:
-            sys.stdout.write(colorize(prompt_text, "prompt"))
-            sys.stdout.flush()
-            key = _read_keypress()
-            if key is None:
-                sys.stdout.write("\n")
-                break
-            if key == "ENTER":
-                sys.stdout.write("\n")
-                return default
-            if len(key) == 1:
-                lower = key.lower()
-                if lower in {"y", "yes", "是"}:
-                    sys.stdout.write(f"{key}\n")
-                    return True
-                if lower in {"n", "no", "否"}:
-                    sys.stdout.write(f"{key}\n")
-                    return False
-            if key == "ESC":
-                sys.stdout.write("\n")
-                return default
-            sys.stdout.write("\a")
-            sys.stdout.flush()
-    # Fallback: standard input
-    while True:
-        raw = input(colorize(prompt_text, "prompt")).strip().lower()
-        if not raw:
-            return default
-        if raw in {"y", "yes", "是"}:
-            return True
-        if raw in {"n", "no", "否"}:
-            return False
-        print(colorize("请输入 y 或 n。", "warning"))
 
+# Moved to ui.input.wait_for_key
+from .ui import wait_for_key as _ui_wait_for_key
 
 def _wait_for_ack(message: str = "按任意键继续...") -> None:
     if not _INTERACTIVE_MODE:
         return
-    prompt_text = colorize(message, "menu_hint")
-    if _supports_interactive_menu():
-        sys.stdout.write(prompt_text)
-        sys.stdout.flush()
-        key = _read_keypress()
-        if key is None:
-            sys.stdout.write("\n")
-            inp_prompt = colorize("按回车继续...", "prompt")
-            input(inp_prompt)
-            return
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-    else:
-        input(colorize(f"{message} (回车确认)", "prompt"))
+    _ui_wait_for_key(message)
 
+
+# Delegated to ui.prompt_optional_date
+from .ui import prompt_optional_date as _ui_prompt_optional_date
 
 def _prompt_date(question: str, default: Optional[str] = None) -> Optional[str]:
-    hint = f"默认 {default}" if default else "按回车跳过"
-    while True:
-        raw = input(colorize(f"{question}（YYYY-MM-DD，{hint}）: ", "prompt")).strip()
-        if not raw:
-            return default
-        try:
-            dt.datetime.strptime(raw, "%Y-%m-%d")
-            return raw
-        except ValueError:
-            print(colorize("日期格式不正确，请重新输入。", "warning"))
+    return _ui_prompt_optional_date(question, default)
 
+
+# Delegated to ui.prompt_positive_int
+from .ui import prompt_positive_int as _ui_prompt_positive_int
 
 def _prompt_int(question: str, default: int) -> int:
-    while True:
-        raw = input(colorize(f"{question}（默认 {default}）: ", "prompt")).strip()
-        if not raw:
-            return default
-        if raw.isdigit():
-            return int(raw)
-        print(colorize("请输入正整数。", "warning"))
+    return _ui_prompt_positive_int(question, default)
 
 
 def _prompt_windows(default_windows: Sequence[int]) -> Sequence[int]:
@@ -5339,6 +3427,9 @@ def _collect_parameters_interactive() -> Optional[dict]:
     }
 
 
+# Moved core logic to business.analysis.run_analysis_and_build_outputs
+from .business.analysis import run_analysis_and_build_outputs as _biz_run_analysis_and_build
+
 def _run_analysis_with_params(
     params: dict,
     *,
@@ -5346,63 +3437,60 @@ def _run_analysis_with_params(
     bundle_context: str | None = None,
     bundle_interactive: bool = True,
 ) -> dict:
+    # Bundle refresh prompt (CLI concern)
     if bundle_context:
         _maybe_prompt_bundle_refresh(bundle_interactive, bundle_context)
-    params.setdefault("presets", [])
-    preset: AnalysisPreset | None = params.get("analysis_preset")
-    momentum_config = MomentumConfig(
-        windows=tuple(params["windows"]),
-        weights=params.get("weights"),
-        skip_windows=params.get("skip_windows"),
-    )
-    config = AnalysisConfig(
-        start_date=params["start"],
-        end_date=params["end"],
-        etfs=params["codes"],
-        exclude=(),
-        momentum=momentum_config,
-        chop_window=params["chop_window"],
-        trend_window=params["trend_window"],
-        corr_window=params["corr_window"],
-        rank_change_lookback=params["rank_lookback"],
-        output_dir=Path(params["output_dir"]),
-        make_plots=params["make_plots"],
-        momentum_percentile_lookback=_MOMENTUM_SIGNIFICANCE_LOOKBACK,
-        momentum_significance_threshold=_MOMENTUM_SIGNIFICANCE_THRESHOLD,
-        trend_consistency_adx_threshold=_TREND_CONSISTENCY_ADX,
-        trend_consistency_chop_threshold=_TREND_CONSISTENCY_CHOP,
-        trend_consistency_fast_span=_TREND_FAST_SPAN,
-        trend_consistency_slow_span=_TREND_SLOW_SPAN,
-        stability_method=params.get("stability_method", _STABILITY_METHOD),
-        stability_window=params.get("stability_window", _STABILITY_WINDOW),
-        stability_top_n=params.get("stability_top_n", _STABILITY_TOP_N),
-        stability_weight=params.get("stability_weight", _STABILITY_WEIGHT),
+
+    # Inject bundle_context for label generation
+    params = dict(params)
+    params["_bundle_context"] = bundle_context
+
+    # Prepare default settings
+    default_settings = {
+        "stability_method": _STABILITY_METHOD,
+        "stability_window": _STABILITY_WINDOW,
+        "stability_top_n": _STABILITY_TOP_N,
+        "stability_weight": _STABILITY_WEIGHT,
+        "momentum_percentile_lookback": _MOMENTUM_SIGNIFICANCE_LOOKBACK,
+        "momentum_significance_threshold": _MOMENTUM_SIGNIFICANCE_THRESHOLD,
+        "trend_consistency_adx_threshold": _TREND_CONSISTENCY_ADX,
+        "trend_consistency_chop_threshold": _TREND_CONSISTENCY_CHOP,
+        "trend_consistency_fast_span": _TREND_FAST_SPAN,
+        "trend_consistency_slow_span": _TREND_SLOW_SPAN,
+    }
+
+    # Run analysis and build outputs (business layer)
+    state = _biz_run_analysis_and_build(
+        params,
+        build_payload_func=_build_result_payload,
+        render_text_report_func=_render_text_report,
+        default_settings=default_settings,
     )
 
-    lang = params.get("lang", "zh")
-    result = analyze(config)
-    payload = _build_result_payload(result, config, momentum_config, preset, lang)
-    report_text = _render_text_report(result, config, momentum_config, preset, lang)
-    print(report_text)
+    # Display report (CLI concern)
+    print(state["report_text"])
     print("")
 
+    # Deprecated features warnings
     if params.get("make_plots"):
         print(colorize("当前版本已禁用图表生成功能。", "warning"))
     if params.get("export_csv"):
         print(colorize("当前版本已禁用 CSV 导出功能。", "warning"))
+
+    # Post-actions (interactive prompts - CLI concern)
+    result = state["result"]
+    config = state["config"]
+    momentum_config = state["momentum_config"]
+    preset = state["preset"]
 
     if post_actions and preset and _prompt_yes_no("是否基于该预设运行简易回测？", False):
         _run_simple_backtest(result, preset)
 
     if post_actions and _prompt_yes_no("是否导出为 RQAlpha 策略脚本？", False):
         default_path = Path("strategies") / "momentum_strategy.py"
-        raw_path = input(
-            colorize(f"输出文件（默认 {default_path}）: ", "prompt")
-        ).strip()
+        raw_path = input(colorize(f"输出文件（默认 {default_path}）: ", "prompt")).strip()
         dest_path = Path(raw_path) if raw_path else default_path
-        freq_raw = input(
-            colorize("调仓频率（monthly/weekly/daily，默认 monthly）: ", "prompt")
-        ).strip().lower()
+        freq_raw = input(colorize("调仓频率（monthly/weekly/daily，默认 monthly）: ", "prompt")).strip().lower()
         freq = freq_raw or "monthly"
         if freq not in {"monthly", "weekly", "daily"}:
             print(colorize("频率输入无效，已回退为 monthly。", "warning"))
@@ -5427,28 +3515,8 @@ def _run_analysis_with_params(
             print(colorize(f"已生成策略文件: {exported}", "value_positive"))
             print(colorize("可通过 rqalpha run -f <文件路径> 进行回测。", "menu_hint"))
 
-    analysis_label = params.get("analysis_name")
-    if not analysis_label:
-        if preset:
-            analysis_label = f"{preset.name} [{preset.key}]"
-        elif bundle_context:
-            analysis_label = bundle_context
-        else:
-            analysis_label = "自定义分析"
-    params.setdefault("analysis_name", analysis_label)
-
-    state = {
-        "result": result,
-        "config": config,
-        "momentum_config": momentum_config,
-        "preset": preset,
-        "params": params,
-        "payload": payload,
-        "report_text": report_text,
-        "title": analysis_label,
-    }
-
-    _record_report_history(state, analysis_label, preset)
+    # Record history (CLI concern)
+    _record_report_history(state, state["title"], preset)
 
     return state
 
@@ -5462,43 +3530,15 @@ def _get_core_satellite_codes() -> tuple[List[str], List[str]]:
 
 
 def _choose_backtest_analysis_preset() -> AnalysisPreset:
-    if "slow-core" in ANALYSIS_PRESETS:
-        return ANALYSIS_PRESETS["slow-core"]
-    if ANALYSIS_PRESETS:
-        return next(iter(ANALYSIS_PRESETS.values()))
-    return AnalysisPreset(
-        key="auto",
-        name="自动预设",
-        description="自动生成的回测分析参数",
-        momentum_windows=(60, 120),
-        momentum_weights=(0.6, 0.4),
-        corr_window=60,
-        chop_window=14,
-        trend_window=90,
-        rank_lookback=5,
-    )
+    """交互式选择回测分析预设"""
+    return _choose_analysis_preset_interactively()
 
 
 def _obtain_backtest_context(
     last_state: Optional[dict], *, allow_reuse: bool = True
 ) -> Optional[dict]:
-    global _LAST_BACKTEST_CONTEXT
-    if _LAST_BACKTEST_CONTEXT:
-        if _prompt_yes_no("复用最近一次回测加载的数据？", True):
-            return _LAST_BACKTEST_CONTEXT
-    if allow_reuse and last_state:
-        if {"result", "config", "momentum_config"}.issubset(last_state.keys()):
-            if _prompt_yes_no("复用最近一次分析结果用于回测？", True):
-                context = {
-                    "result": last_state["result"],
-                    "config": last_state["config"],
-                    "momentum_config": last_state["momentum_config"],
-                    "preset": last_state.get("preset"),
-                }
-                _LAST_BACKTEST_CONTEXT = context
-                return context
-        else:
-            print(colorize("最近一次分析缺少所需数据，无法直接复用。", "warning"))
+    # 应用户要求：取消复用提示，默认不复用最近一次分析/回测的数据
+    # 直接进入新一次数据加载与参数选择流程
     core_codes, satellite_codes = _get_core_satellite_codes()
     if not core_codes and not satellite_codes:
         print(colorize("请先在券池预设中配置 core 与 satellite，再运行回测。", "warning"))
@@ -5548,7 +3588,8 @@ def _obtain_backtest_context(
     _maybe_prompt_bundle_refresh(True, "回测数据加载")
     print(colorize("正在加载回测所需数据，请稍候……", "menu_hint"))
     try:
-        result = analyze(config)
+        from .business.analysis import run_analysis_only
+        result = run_analysis_only(config)
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"数据加载失败: {exc}", "danger"))
         return None
@@ -5563,174 +3604,305 @@ def _obtain_backtest_context(
     return context
 
 
-def _run_simple_backtest(result, preset: AnalysisPreset, top_n: int = 2) -> None:
-    close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()})
-    close_df = close_df.sort_index().dropna(how="all")
-    if close_df.empty:
-        print(colorize("无法回测：价格数据为空。", "warning"))
-        return
-    returns_df = close_df.pct_change().fillna(0)
+# Moved to business.backtest (63 lines)
+from .business.backtest import run_simple_backtest as _biz_run_simple_backtest
 
-    aligned_scores = result.momentum_scores.reindex(close_df.index).ffill()
-    if aligned_scores.dropna(how="all").empty:
-        print(colorize("无法回测：动量得分为空。", "warning"))
-        return
-    momentum_df = aligned_scores
-
-    rebalance_dates = close_df.resample("ME").last().index
-    if rebalance_dates.empty:
-        rebalance_dates = close_df.index
-
-    weights = pd.DataFrame(0.0, index=close_df.index, columns=close_df.columns)
-    current_codes: List[str] = []
-    for date in close_df.index:
-        if date in rebalance_dates:
-            scores = momentum_df.loc[date].dropna()
-            top_codes = scores.sort_values(ascending=False).head(top_n).index.tolist()
-            current_codes = [code for code in top_codes if code in close_df.columns]
-        if current_codes:
-            weights.loc[date, current_codes] = 1.0 / len(current_codes)
-
-    portfolio_returns = (weights.shift().fillna(0) * returns_df).sum(axis=1)
-    cumulative = (1 + portfolio_returns).cumprod()
-    total_return = cumulative.iloc[-1] - 1 if not cumulative.empty else 0
-    periods_per_year = 252
-    ann_return = (
-        (1 + total_return) ** (periods_per_year / len(portfolio_returns)) - 1
-        if len(portfolio_returns) > 0
-        else 0
-    )
-    drawdown = cumulative / cumulative.cummax() - 1 if not cumulative.empty else pd.Series()
-    max_drawdown = drawdown.min() if not drawdown.empty else 0
-    sharpe = (
-        (portfolio_returns.mean() / portfolio_returns.std()) * np.sqrt(periods_per_year)
-        if portfolio_returns.std() != 0
-        else 0
+def _run_simple_backtest(
+    result,
+    preset: AnalysisPreset,
+    top_n: int = 2,
+    *,
+    frequency: str = "monthly",
+    observation_period: int = 0,
+) -> None:
+    _biz_run_simple_backtest(
+        result,
+        preset,
+        top_n,
+        frequency=frequency,
+        observation_period=observation_period,
     )
 
-    print(colorize("\n=== 简易回测结果 ===", "heading"))
-    preset_line = f"预设: {preset.name} [{preset.key}]，每月调仓，持仓上限 {top_n} 条腿"
-    print(colorize(preset_line, "menu_text"))
-    print(colorize(f"累计收益: {total_return:.2%}", "value_positive" if total_return >= 0 else "value_negative"))
-    print(colorize(f"年化收益: {ann_return:.2%}", "value_positive" if ann_return >= 0 else "value_negative"))
-    print(colorize(f"最大回撤: {max_drawdown:.2%}", "danger"))
-    print(colorize(f"夏普比率: {sharpe:.2f}", "accent" if sharpe > 0 else "warning"))
+from .business.experimental import run_experimental_momentum_backtest as _biz_run_experimental_momentum
 
-    if current_codes:
-        last_weights = weights.iloc[-1]
-        holding_lines: List[str] = []
-        for code in current_codes:
-            weight = float(last_weights.get(code, 0.0))
-            label = _format_label(code)
-            holding_lines.append(f"{label}: {weight:.1%}")
-        print(colorize("最新持仓结构:", "heading"))
-        print(colorize("; ".join(holding_lines), "menu_text"))
+def _run_experimental_scientific_momentum(last_state: Optional[dict] = None) -> None:
+    """实验性功能菜单：科学动量回测 + 参数优化"""
+    while True:
+        options = [
+            {"key": "1", "label": "科学动量回测（8种预设可选）"},
+            {"key": "2", "label": "参数优化实验 - 阶段1：粗筛（~2分钟）"},
+            {"key": "3", "label": "参数优化实验 - 阶段2：精调（~15分钟）"},
+            {"key": "4", "label": "参数优化实验 - 完整流程（~20分钟）"},
+            {"key": "5", "label": "查看优化结果"},
+            {"key": "0", "label": "返回上级菜单"},
+        ]
+        choice = _prompt_menu_choice(
+            options,
+            title="┌─ 实验性功能 ─" + "─" * 18,
+            header_lines=[""],
+            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
+            default_key="1",
+        )
+        
+        if choice == "1":
+            # 原有的科学动量回测
+            _run_scientific_momentum_single(last_state)
+            continue
+        elif choice == "2":
+            # 阶段1：粗筛
+            _run_batch_optimization(phase=1)
+            continue
+        elif choice == "3":
+            # 阶段2：精调
+            _run_batch_optimization(phase=2)
+            continue
+        elif choice == "4":
+            # 完整流程
+            _run_batch_optimization(phase=0)
+            continue
+        elif choice == "5":
+            # 查看结果
+            _show_optimization_results()
+            continue
+        elif choice == "0":
+            break
+        else:
+            break
 
 
-def _core_satellite_portfolio_returns(
-    close_df: pd.DataFrame,
-    momentum_df: pd.DataFrame,
-    core_codes: Sequence[str],
-    satellite_codes: Sequence[str],
-    core_allocation: float,
-    satellite_allocation: float,
-    top_n: int,
-) -> tuple[pd.Series, dict]:
-    if close_df.empty:
-        return pd.Series(dtype=float), {}
+def _run_scientific_momentum_single(last_state: Optional[dict] = None) -> None:
+    """原有的科学动量回测功能"""
+    from .business.experimental import EXPERIMENTAL_PRESETS
 
-    close_df = close_df.sort_index()
-    returns_df = close_df.pct_change().fillna(0.0)
-    aligned_momentum = momentum_df.reindex(close_df.index).ffill()
+    # Show preset menu
+    preset_keys = list(EXPERIMENTAL_PRESETS.keys())
+    print(colorize("[实验] 可用预设:", "heading"))
+    for i, key in enumerate(preset_keys, 1):
+        cfg = EXPERIMENTAL_PRESETS[key]
+        print(colorize(f"  {i}. {key} - {cfg.hint[:60]}{'...' if len(cfg.hint) > 60 else ''}", "menu_text"))
+    print(colorize("  0. 自定义参数", "menu_text"))
 
-    rebalance_dates = close_df.resample("ME").last().index
-    if rebalance_dates.empty:
-        rebalance_dates = close_df.index
+    choice = _ui_prompt_text("[实验] 选择预设（1-8，0=自定义，默认1）", "1").strip()
 
-    universe = list(close_df.columns)
-    weights = pd.DataFrame(0.0, index=close_df.index, columns=universe)
+    if choice == "0":
+        # Custom config (original prompts)
+        try:
+            top_n = int(_ui_prompt_text("[实验] TopN（默认 2）", "2") or 2)
+        except Exception:
+            top_n = 2
+        try:
+            min_pct = float(_ui_prompt_text("[实验] 动量分位阈值（0-1，默认 0.60）", "0.60") or 0.60)
+        except Exception:
+            min_pct = 0.60
+        try:
+            max_corr = float(_ui_prompt_text("[实验] 最大相关性（默认 0.85）", "0.85") or 0.85)
+        except Exception:
+            max_corr = 0.85
+        try:
+            corr_win = int(_ui_prompt_text("[实验] 相关性窗口（交易日，默认 120）", "120") or 120)
+        except Exception:
+            corr_win = 120
+        try:
+            trend_win = int(_ui_prompt_text("[实验] 趋势斜率窗口（交易日，默认 180）", "180") or 180)
+        except Exception:
+            trend_win = 180
 
-    core_set = [code for code in core_codes if code in universe]
-    sat_set = [code for code in satellite_codes if code in universe]
-    used_sat_codes: set[str] = set()
-    current_weights: dict[str, float] = {}
-
-    for date in close_df.index:
-        if date in rebalance_dates:
-            new_weights: dict[str, float] = {}
-            if core_set and core_allocation > 0:
-                per_core = core_allocation / len(core_set)
-                for code in core_set:
-                    new_weights[code] = new_weights.get(code, 0.0) + per_core
-            selected_sat: list[str] = []
-            if sat_set and satellite_allocation > 0:
-                score_series = aligned_momentum.loc[date, sat_set].dropna()
-                if not score_series.empty:
-                    selected_sat = (
-                        score_series.sort_values(ascending=False)
-                        .head(max(1, top_n))
-                        .index.tolist()
-                    )
-                    used_sat_codes.update(selected_sat)
-                    per_sat = satellite_allocation / len(selected_sat)
-                    for code in selected_sat:
-                        new_weights[code] = new_weights.get(code, 0.0) + per_sat
-            total_alloc = sum(new_weights.values())
-            if total_alloc > 0:
-                new_weights = {
-                    code: value / total_alloc for code, value in new_weights.items() if value > 0
-                }
+        from .business.experimental import ExperimentalConfig as _ExpCfg
+        cfg = _ExpCfg(top_n=top_n, min_percentile=min_pct, max_correlation=max_corr, corr_window=corr_win, trend_window=trend_win)
+    else:
+        # Use preset
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(preset_keys):
+                preset_name = preset_keys[idx]
+                cfg = EXPERIMENTAL_PRESETS[preset_name]
+                print(colorize(f"[实验] 已选择预设: {preset_name}", "value_positive"))
             else:
-                new_weights = {}
-            current_weights = new_weights
-        if current_weights:
-            for code, weight in current_weights.items():
-                weights.loc[date, code] = weight
+                cfg = EXPERIMENTAL_PRESETS[preset_keys[0]]  # fallback to first
+                print(colorize(f"[实验] 无效选择，使用默认预设: {preset_keys[0]}", "warning"))
+        except Exception:
+            cfg = EXPERIMENTAL_PRESETS[preset_keys[0]]  # fallback to first
+            print(colorize(f"[实验] 解析错误，使用默认预设: {preset_keys[0]}", "warning"))
 
-    shifted_weights = weights.shift().ffill().fillna(0.0)
-    portfolio_returns = (shifted_weights * returns_df).sum(axis=1)
-
-    detail = {
-        "core_set": core_set,
-        "satellite_set": sat_set,
-        "used_satellite": sorted(used_sat_codes),
-        "last_weights": current_weights.copy(),
-    }
-    return portfolio_returns, detail
-
-
-def _calculate_performance_metrics(returns: pd.Series) -> dict:
-    returns = returns.dropna()
-    days = len(returns)
-    if days == 0:
-        return {
-            "days": 0,
-            "total_return": np.nan,
-            "annualized": np.nan,
-            "volatility": np.nan,
-            "max_drawdown": np.nan,
-            "sharpe": np.nan,
-        }
-    cumulative = (1 + returns).cumprod()
-    total_return = cumulative.iloc[-1] - 1
-    periods_per_year = 252
-    annualized = (1 + total_return) ** (periods_per_year / days) - 1 if days > 0 else np.nan
-    volatility = returns.std() * np.sqrt(periods_per_year) if days > 1 else np.nan
-    drawdown = cumulative / cumulative.cummax() - 1
-    max_drawdown = drawdown.min() if not drawdown.empty else np.nan
-    sharpe = (
-        (returns.mean() / returns.std()) * np.sqrt(periods_per_year)
-        if returns.std() and returns.std() > 0
-        else np.nan
+    return _biz_run_experimental_momentum(
+        obtain_context_func=_obtain_backtest_context,
+        format_label_func=_format_label,
+        colorize_func=colorize,
+        render_table_func=_render_backtest_table,
+        wait_for_ack_func=_wait_for_ack,
+        last_state=last_state,
+        config=cfg,
     )
-    return {
-        "days": int(days),
-        "total_return": float(total_return),
-        "annualized": float(annualized) if np.isfinite(annualized) else np.nan,
-        "volatility": float(volatility) if np.isfinite(volatility) else np.nan,
-        "max_drawdown": float(max_drawdown) if np.isfinite(max_drawdown) else np.nan,
-        "sharpe": float(sharpe) if np.isfinite(sharpe) else np.nan,
-    }
+
+
+def _run_batch_optimization(phase: int = 0) -> None:
+    """
+    运行批量参数优化实验
+    
+    Args:
+        phase: 0=完整流程, 1=仅粗筛, 2=仅精调
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    script_path = Path(__file__).parent.parent / "scripts" / "experiments" / "batch_backtest.py"
+    
+    if not script_path.exists():
+        print(colorize("❌ 错误：未找到批量回测脚本", "danger"))
+        print(colorize(f"   期望路径: {script_path}", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    print(colorize("\n" + "="*60, "heading"))
+    if phase == 0:
+        print(colorize("参数优化实验 - 完整流程", "heading"))
+        print(colorize("  阶段1：粗筛（4个策略 × 固定参数）", "menu_text"))
+        print(colorize("  阶段2：精调（Top3 × 54种参数组合）", "menu_text"))
+        print(colorize("  预计耗时：~20分钟", "warning"))
+    elif phase == 1:
+        print(colorize("参数优化实验 - 阶段1：粗筛", "heading"))
+        print(colorize("  测试4个策略，固定参数配置", "menu_text"))
+        print(colorize("  预计耗时：~2分钟", "menu_text"))
+    else:
+        print(colorize("参数优化实验 - 阶段2：精调", "heading"))
+        print(colorize("  基于阶段1结果，精细化参数搜索", "menu_text"))
+        print(colorize("  预计耗时：~15分钟", "warning"))
+    print(colorize("="*60, "heading"))
+    
+    confirm = _prompt_yes_no("\n确认开始实验？", True)
+    if not confirm:
+        print(colorize("已取消。", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    print(colorize("\n实验运行中，请耐心等待...\n", "value_positive"))
+    
+    # 构建命令
+    python_exe = sys.executable
+    if phase == 0:
+        cmd = [python_exe, str(script_path), "--full"]
+    elif phase == 1:
+        cmd = [python_exe, str(script_path), "--phase", "1"]
+    else:
+        cmd = [python_exe, str(script_path), "--phase", "2"]
+    
+    try:
+        # 运行脚本并实时显示输出
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        for line in process.stdout:
+            print(line, end='')
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            print(colorize("\n✓ 实验完成！", "value_positive"))
+        else:
+            print(colorize(f"\n❌ 实验失败（退出码: {process.returncode}）", "danger"))
+    
+    except Exception as e:
+        print(colorize(f"\n❌ 执行错误: {str(e)}", "danger"))
+    
+    _wait_for_ack()
+
+
+def _show_optimization_results() -> None:
+    """查看优化实验结果"""
+    from pathlib import Path
+    import pandas as pd
+    
+    results_dir = Path("results")
+    
+    if not results_dir.exists():
+        print(colorize("❌ 未找到结果目录", "danger"))
+        print(colorize("   请先运行参数优化实验", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    # 查找最新的结果文件
+    phase1_files = sorted(results_dir.glob("phase1_coarse_*.csv"))
+    phase2_files = sorted(results_dir.glob("phase2_fine_*.csv"))
+    
+    if not phase1_files and not phase2_files:
+        print(colorize("❌ 未找到实验结果文件", "danger"))
+        print(colorize("   请先运行参数优化实验", "menu_hint"))
+        _wait_for_ack()
+        return
+    
+    print(colorize("\n" + "="*60, "heading"))
+    print(colorize("实验结果汇总", "heading"))
+    print(colorize("="*60, "heading"))
+    
+    # 显示阶段1结果
+    if phase1_files:
+        latest_phase1 = phase1_files[-1]
+        print(colorize(f"\n阶段1结果文件: {latest_phase1.name}", "menu_text"))
+        try:
+            df1 = pd.read_csv(latest_phase1)
+            print(colorize("\n策略粗筛排名（训练期夏普）：", "heading"))
+            display_cols = ["strategy", "sharpe_ratio", "annualized_return", "max_drawdown"]
+            for col in display_cols:
+                if col not in df1.columns:
+                    display_cols.remove(col)
+            print(df1[display_cols].head(10).to_string(index=False))
+        except Exception as e:
+            print(colorize(f"读取失败: {str(e)}", "warning"))
+    
+    # 显示阶段2结果
+    if phase2_files:
+        latest_phase2 = phase2_files[-1]
+        print(colorize(f"\n阶段2结果文件: {latest_phase2.name}", "menu_text"))
+        try:
+            df2 = pd.read_csv(latest_phase2)
+            print(colorize("\n最优配置（Top 10）：", "heading"))
+            display_cols = [
+                "strategy", "frequency", "top_n", "observation_period",
+                "sharpe_test", "maxdd_test", "turnover", "score"
+            ]
+            for col in display_cols:
+                if col not in df2.columns:
+                    display_cols.remove(col)
+            print(df2[display_cols].head(10).to_string(index=False))
+            
+            # 显示最优配置详情
+            if not df2.empty:
+                best = df2.iloc[0]
+                print(colorize("\n" + "="*60, "heading"))
+                print(colorize("🏆 推荐配置", "heading"))
+                print(colorize("="*60, "heading"))
+                print(colorize(f"策略: {best['strategy']}", "menu_text"))
+                print(colorize(f"调仓频率: {best['frequency']}", "menu_text"))
+                print(colorize(f"持仓数量: {int(best['top_n'])}", "menu_text"))
+                print(colorize(f"观察期: {int(best['observation_period'])}个月", "menu_text"))
+                if 'correlation_threshold' in best:
+                    print(colorize(f"相关性阈值: {best['correlation_threshold']:.2f}", "menu_text"))
+                print()
+                print(colorize(f"测试期夏普: {best['sharpe_test']:.2f}", "value_positive"))
+                if 'return_test' in best:
+                    print(colorize(f"测试期年化收益: {best['return_test']:.2%}", "value_positive"))
+                print(colorize(f"最大回撤: {best['maxdd_test']:.2%}", "danger"))
+                if 'turnover' in best:
+                    print(colorize(f"年化换手率: {best['turnover']:.2f}", "menu_text"))
+                print(colorize(f"综合得分: {best['score']:.4f}", "accent"))
+        except Exception as e:
+            print(colorize(f"读取失败: {str(e)}", "warning"))
+    
+    _wait_for_ack()
+
+
+#   business.backtest
+from .business.backtest import core_satellite_portfolio_returns as _core_satellite_portfolio_returns
+
+
+# moved to business.backtest
+from .business.backtest import calculate_performance_metrics as _calculate_performance_metrics
 
 
 def _render_backtest_table(rows: List[dict]) -> str:
@@ -5748,161 +3920,89 @@ def _render_backtest_table(rows: List[dict]) -> str:
         ("sharpe", "夏普", "right"),
         ("note", "备注", "left"),
     ]
-    col_widths: dict[str, int] = {}
-    for key, header, _ in columns:
-        width = _display_width(header)
-        for row in rows:
-            width = max(width, _display_width(row.get(key, "")))
-        col_widths[key] = width
+    from .utils import formatters as _fmt
+    return _fmt.render_table(columns, rows)
 
-    def fmt_cell(key: str, text: str, align: str, style: str | None = None) -> str:
-        padded = _pad_display(text, col_widths[key], align)
-        if style:
-            return colorize(padded, style)
-        return padded
 
-    header_line = " | ".join(
-        fmt_cell(key, header, align, style="header") for key, header, align in columns
+# Moved to business.backtest (approx 120 lines)
+from .business.backtest import run_core_satellite_multi_backtest as _biz_run_core_satellite
+from .business.backtest import run_core_satellite_custom_backtest as _biz_run_core_satellite_custom
+
+
+def _run_core_satellite_custom_backtest(last_state: Optional[dict] = None) -> None:
+    # 交互式获取自定义参数（有默认值）
+    def _as_float(s: str, default: float) -> float:
+        try:
+            return float(s)
+        except Exception:
+            return default
+    def _as_int(s: str, default: int) -> int:
+        try:
+            return int(s)
+        except Exception:
+            return default
+
+    mode = _ui_prompt_text("模式（core+sat/core/sat，默认 core+sat）", "core+sat").strip().lower() or "core+sat"
+
+    # 按模式分支：纯核心/纯卫星不涉及 CHOP/MA 动态防守
+    if mode == "core+sat":
+        chop_threshold = _as_float(_ui_prompt_text("CHOP阈值（默认 38.0）", "38.0"), 38.0)
+        ma_window = _as_int(_ui_prompt_text("MA窗口（默认 200）", "200"), 200)
+        sat_trend_alloc = _as_float(_ui_prompt_text("趋势期卫星仓配置（比例，默认 0.40）", "0.40"), 0.40)
+        sat_def_alloc = _as_float(_ui_prompt_text("防守期卫星仓配置（比例，默认 0.15）", "0.15"), 0.15)
+        top_n_trend = _as_int(_ui_prompt_text("趋势期卫星腿数 TopN（默认 2）", "2"), 2)
+        top_n_def = _as_int(_ui_prompt_text("防守期卫星腿数 TopN（默认 1）", "1"), 1)
+        dynamic_defense = _ui_prompt_yes_no("启用动态防守（CHOP/MA200），默认是？", True)
+        if not dynamic_defense:
+            sat_def_alloc = sat_trend_alloc
+            top_n_def = top_n_trend
+    elif mode == "sat":
+        # 纯卫星：始终使用趋势期设定，忽略 CHOP/MA
+        chop_threshold = 38.0
+        ma_window = 200
+        sat_trend_alloc = _as_float(_ui_prompt_text("卫星仓配置（比例，默认 0.40）", "0.40"), 0.40)
+        top_n_trend = _as_int(_ui_prompt_text("卫星腿数 TopN（默认 2）", "2"), 2)
+        sat_def_alloc = sat_trend_alloc
+        top_n_def = top_n_trend
+    else:  # core 模式
+        chop_threshold = 38.0
+        ma_window = 200
+        sat_trend_alloc = 0.0
+        sat_def_alloc = 0.0
+        top_n_trend = 0
+        top_n_def = 0
+
+    return _biz_run_core_satellite_custom(
+        obtain_context_func=_obtain_backtest_context,
+        get_core_satellite_codes_func=_get_core_satellite_codes,
+        format_label_func=_format_label,
+        colorize_func=colorize,
+        render_table_func=_render_backtest_table,
+        wait_for_ack_func=_wait_for_ack,
+        last_state=last_state,
+        mode=mode,
+        chop_threshold=chop_threshold,
+        ma_window=ma_window,
+        sat_allocation_trend=sat_trend_alloc,
+        sat_allocation_defense=sat_def_alloc,
+        defense_to_cash=True,
+        top_n_trend=top_n_trend,
+        top_n_defense=top_n_def,
     )
-    separator_line = colorize(
-        "-+-".join("-" * col_widths[key] for key, _, _ in columns), "divider"
-    )
-
-    body_lines = []
-    for row in rows:
-        parts: List[str] = []
-        for key, _, align in columns:
-            value = row.get(key, "")
-            style = row.get(f"style_{key}")
-            parts.append(fmt_cell(key, value, align, style))
-        body_lines.append(" | ".join(parts))
-
-    return "\n".join([header_line, separator_line, *body_lines])
 
 
 def _run_core_satellite_multi_backtest(last_state: Optional[dict] = None) -> None:
-    context = _obtain_backtest_context(last_state, allow_reuse=bool(last_state))
-    if not context:
-        return
-    result = context["result"]
-    config = context["config"]
-    close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()})
-    close_df = close_df.sort_index().dropna(how="all")
-    if close_df.empty:
-        print(colorize("无法回测：价格数据为空。", "warning"))
-        return
-    momentum_df = result.momentum_scores
-    if momentum_df.empty:
-        print(colorize("无法回测：动量得分为空。", "warning"))
-        return
-
-    core_codes, satellite_codes = _get_core_satellite_codes()
-    if not core_codes and not satellite_codes:
-        print(colorize("缺少核心/卫星券池定义，请先在券池预设中配置 core 与 satellite。", "warning"))
-        return
-    available_columns = set(close_df.columns)
-    core_available = [code for code in core_codes if code in available_columns]
-    satellite_available = [code for code in satellite_codes if code in available_columns]
-
-    if not core_available:
-        print(colorize("核心券池在当前分析结果中无可用标的，将仅使用卫星仓。", "warning"))
-    if not satellite_available:
-        print(colorize("卫星券池在当前分析结果中无可用标的，将仅使用核心仓。", "warning"))
-    if not core_available and not satellite_available:
-        print(colorize("核心与卫星券池均无可用标的，无法执行回测。", "danger"))
-        return
-
-    horizons = [
-        ("近10年", pd.DateOffset(years=10)),
-        ("近5年", pd.DateOffset(years=5)),
-        ("近2年", pd.DateOffset(years=2)),
-        ("近1年", pd.DateOffset(years=1)),
-        ("近6个月", pd.DateOffset(months=6)),
-        ("近3个月", pd.DateOffset(months=3)),
-    ]
-
-    end_date = close_df.index.max()
-    rows_for_table: List[dict] = []
-    last_holdings: dict[str, float] = {}
-    warnings: List[str] = []
-
-    for label, offset in horizons:
-        start_candidate = end_date - offset
-        mask = close_df.index >= start_candidate
-        close_slice = close_df.loc[mask]
-        if close_slice.empty:
-            continue
-        actual_start = close_slice.index[0]
-        momentum_slice = momentum_df.reindex(close_slice.index).ffill()
-        portfolio_returns, detail = _core_satellite_portfolio_returns(
-            close_slice,
-            momentum_slice,
-            core_available,
-            satellite_available,
-            core_allocation=0.6,
-            satellite_allocation=0.4,
-            top_n=2,
-        )
-        metrics = _calculate_performance_metrics(portfolio_returns)
-        if metrics["days"] == 0:
-            continue
-        note_text = ""
-        if metrics["days"] < 40:
-            warnings.append(
-                f"{label} 数据量仅 {metrics['days']} 个交易日，结果仅供参考。"
-            )
-            note_text = "样本偏少"
-        total_str = "-" if np.isnan(metrics["total_return"]) else f"{metrics['total_return']:.2%}"
-        annual_str = "-" if np.isnan(metrics["annualized"]) else f"{metrics['annualized']:.2%}"
-        vol_str = "-" if np.isnan(metrics["volatility"]) else f"{metrics['volatility']:.2%}"
-        maxdd_str = "-" if np.isnan(metrics["max_drawdown"]) else f"{metrics['max_drawdown']:.2%}"
-        sharpe_str = "-" if np.isnan(metrics["sharpe"]) else f"{metrics['sharpe']:.2f}"
-        row = {
-            "label": label,
-            "start": str(actual_start.date()),
-            "end": str(end_date.date()),
-            "days": str(metrics["days"]),
-            "total": total_str,
-            "annual": annual_str,
-            "vol": vol_str,
-            "maxdd": maxdd_str,
-            "sharpe": sharpe_str,
-            "note": note_text,
-        }
-        if not np.isnan(metrics["total_return"]) and metrics["total_return"] >= 0:
-            row["style_total"] = "value_positive"
-            row["style_annual"] = "value_positive"
-        elif not np.isnan(metrics["total_return"]):
-            row["style_total"] = "value_negative"
-            row["style_annual"] = "value_negative"
-        if not np.isnan(metrics["max_drawdown"]):
-            row["style_maxdd"] = "value_negative" if metrics["max_drawdown"] < 0 else "value_positive"
-        if not np.isnan(metrics["sharpe"]):
-            row["style_sharpe"] = "accent" if metrics["sharpe"] > 0 else "warning"
-        rows_for_table.append(row)
-        last_holdings = detail.get("last_weights", {})
-
-    print(colorize("\n=== 核心-卫星多区间回测 ===", "heading"))
-    print(colorize("策略假设：核心仓 60% 等权持有核心券池全部标的；卫星仓 40% 择优持有卫星券池中动量得分排名前二，每月调仓。", "menu_hint"))
-    print(colorize(f"核心仓标的数: {len(core_available)} | 卫星仓候选: {len(satellite_available)}", "menu_text"))
-
-    print(_render_backtest_table(rows_for_table))
-
-    if last_holdings:
-        sorted_holdings = sorted(last_holdings.items(), key=lambda item: item[1], reverse=True)
-        holding_lines = []
-        for code, weight in sorted_holdings:
-            label = _format_label(code)
-            holding_lines.append(f"{label}: {weight:.1%}")
-        print(colorize("\n最新权重（所有区间共用）:", "heading"))
-        print(colorize("; ".join(holding_lines), "menu_text"))
-
-    if warnings:
-        print("")
-        for message in warnings:
-            print(colorize(f"提示: {message}", "warning"))
-    _wait_for_ack()
-
+    return _biz_run_core_satellite(
+        obtain_context_func=_obtain_backtest_context,
+        get_core_satellite_codes_func=_get_core_satellite_codes,
+        core_satellite_returns_func=_core_satellite_portfolio_returns,
+        calc_metrics_func=_calculate_performance_metrics,
+        format_label_func=_format_label,
+        colorize_func=colorize,
+        render_table_func=_render_backtest_table,
+        wait_for_ack_func=_wait_for_ack,
+        last_state=last_state,
+    )
 
 
 def _make_backtest_preset(
@@ -5930,32 +4030,16 @@ def _make_backtest_preset(
     )
 
 
+# Moved to business.reports
+from .business import display_analysis_summary as _business_display_analysis_summary
+
 def _display_analysis_summary(state: dict) -> None:
-    report_text = state.get("report_text")
-    if report_text:
-        print(report_text)
-        return
-    result = state["result"]
-    config = state["config"]
-    print(colorize("\n=== 动量汇总 ===", "heading"))
-    print(format_summary_frame(result.summary, "zh"))
-    print(
-        colorize(
-            f"\n=== 相关系数矩阵 (近 {config.corr_window} 个交易日) ===",
-            "heading",
-        )
+    _business_display_analysis_summary(
+        state,
+        format_summary_func=lambda s, l: format_summary_frame(s, l),
+        format_correlation_func=format_correlation,
+        colorize_func=colorize
     )
-    print(format_correlation(result.correlation, "zh"))
-    print(
-        colorize(
-            f"\n耗时: {result.runtime_seconds:.2f} 秒，覆盖 {len(result.summary)} 只 ETF",
-            "info",
-        )
-    )
-    if result.plot_paths:
-        print(colorize("生成的图表：", "heading"))
-        for path in result.plot_paths:
-            print(colorize(f" - {path}", "menu_hint"))
 
 
 def _interactive_backtest(last_state: Optional[dict]) -> None:
@@ -5967,7 +4051,22 @@ def _interactive_backtest(last_state: Optional[dict]) -> None:
     preset = _make_backtest_preset(context.get("preset"), config, context["momentum_config"])
     default_top = max(1, min(3, len(result.summary)))
     top_n = _prompt_int("回测持仓数量", default_top)
-    _run_simple_backtest(result, preset, top_n=top_n)
+
+    # 询问调仓频率与观察期
+    freq_raw = input(colorize("调仓频率（monthly/weekly/daily，默认 monthly）: ", "prompt")).strip().lower()
+    frequency = freq_raw or "monthly"
+    if frequency not in {"monthly", "weekly", "daily"}:
+        print(colorize("频率输入无效，已回退为 monthly。", "warning"))
+        frequency = "monthly"
+    observation_period = _prompt_int("观察期（连续掉队N个调仓周期才换仓，默认0=关闭）", 0)
+
+    _run_simple_backtest(
+        result,
+        preset,
+        top_n=top_n,
+        frequency=frequency,
+        observation_period=observation_period,
+    )
 
 
 def _interactive_export_strategy(state: dict) -> None:
@@ -6003,6 +4102,8 @@ def _interactive_export_strategy(state: dict) -> None:
             start_date=config.start_date,
             end_date=config.end_date,
             label=label,
+            stability_weight=config.stability_weight,
+            stability_window=config.stability_window,
         )
     except Exception as exc:  # noqa: BLE001
         print(colorize(f"导出失败: {exc}", "danger"))
@@ -6108,45 +4209,11 @@ def _interactive_delete_template() -> None:
     _wait_for_ack()
 
 
+# Moved to business.templates
+from .business import print_template_details as _business_print_template_details
+
 def _print_template_details(name: str, payload: dict) -> None:
-    start = payload.get("start") or "-"
-    end = payload.get("end") or "-"
-    windows = payload.get("momentum_windows") or []
-    weights = payload.get("momentum_weights") or []
-    corr_window = payload.get("corr_window")
-    chop_window = payload.get("chop_window")
-    trend_window = payload.get("trend_window")
-    rank_lookback = payload.get("rank_lookback")
-    presets = payload.get("presets") or []
-    codes = payload.get("etfs") or []
-    print(colorize(f"模板：{name}", "heading"))
-    print(colorize(f"  区间: {start} → {end}", "menu_text"))
-    window_text = ",".join(str(int(win)) for win in windows) if windows else "-"
-    weight_text = (
-        ",".join(f"{float(weight):.2f}" for weight in weights)
-        if weights
-        else "等权"
-    )
-    skip_values = payload.get("momentum_skip_windows") or []
-    skip_text = ",".join(str(int(value)) for value in skip_values) if skip_values else "0"
-    print(colorize(f"  动量窗口: {window_text} | 剔除: {skip_text} | 权重: {weight_text}", "menu_text"))
-    print(
-        colorize(
-            "  参数: "
-            + f"Corr {corr_window} / Chop {chop_window} / 趋势 {trend_window} / 回溯 {rank_lookback}",
-            "menu_hint",
-        )
-    )
-    preset_text = ",".join(presets) if presets else "无标签"
-    print(colorize(f"  预设标签: {preset_text}", "menu_hint"))
-    code_text = ", ".join(_format_label(code) for code in codes) if codes else "-"
-    wrapped_codes = textwrap.fill(
-        code_text,
-        width=90,
-        initial_indent="  券池: ",
-        subsequent_indent="         ",
-    )
-    print(colorize(wrapped_codes, "menu_hint"))
+    _business_print_template_details(name, payload, format_label_func=_format_label)
 
 def _interactive_edit_template_entry() -> None:
     store = _load_template_store()
@@ -6356,213 +4423,32 @@ def _show_history_menu(last_state: Optional[dict]) -> Optional[dict]:
 
 
 def _show_backtest_menu(last_state: Optional[dict]) -> Optional[dict]:
-    global _LAST_BACKTEST_CONTEXT
-    _maybe_prompt_bundle_refresh(True, "回测工具")
-    current_state = _ensure_analysis_state(last_state, context="回测工具")
-    if not current_state:
-        return last_state
-    while True:
-        options = [
-            {"key": "1", "label": "简易动量回测（当前参数）"},
-            {"key": "2", "label": "核心-卫星多区间回测"},
-            {"key": "3", "label": "动量回溯 / 图表"},
-            {"key": "4", "label": "导出策略脚本（当前参数）"},
-            {"key": "5", "label": "刷新数据（运行快速分析）"},
-            {"key": "0", "label": "返回上级菜单"},
-        ]
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 回测与动量工具 ─" + "─" * 14,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="1",
-        )
-        if choice == "1":
-            _interactive_backtest(current_state)
-            continue
-        if choice == "2":
-            _run_core_satellite_multi_backtest(current_state)
-            continue
-        if choice == "3":
-            new_state = _show_history_menu(current_state)
-            if new_state:
-                current_state = new_state
-            continue
-        if choice == "4":
-            _interactive_export_strategy(current_state)
-            continue
-        if choice == "5":
-            refreshed = _run_quick_analysis(post_actions=False)
-            if refreshed:
-                current_state = refreshed
-                _LAST_BACKTEST_CONTEXT = None
-                print(colorize("已使用最新数据完成快速分析。", "value_positive"))
-            else:
-                print(colorize("刷新失败，请稍后再试或运行自定义分析。", "danger"))
-            _wait_for_ack()
-            continue
-        if choice in {"0", "__escape__"}:
-            return current_state
-        print(colorize("无效指令，请重新输入。", "warning"))
+    from .commands.backtest_menu import run as _run
+    return _run(last_state)
 
 
 def _show_templates_menu(last_state: Optional[dict]) -> Optional[dict]:
-    current_state = last_state
-    while True:
-        options = [
-            {"key": "1", "label": "列出分析模板"},
-            {"key": "2", "label": "使用模板运行动量分析"},
-            {
-                "key": "3",
-                "label": "保存最近一次分析为模板" if current_state else "保存最近一次分析为模板（需先运行分析）",
-                "enabled": bool(current_state),
-            },
-            {"key": "4", "label": "删除分析模板"},
-            {"key": "0", "label": "返回上级菜单"},
-        ]
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 模板管理 ─" + "─" * 20,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="1",
-        )
-        if choice == "1":
-            _interactive_list_templates()
-            continue
-        if choice == "2":
-            state = _interactive_run_template()
-            if state:
-                current_state = state
-            continue
-        if choice == "3":
-            if current_state:
-                _interactive_save_template(current_state)
-            else:
-                print(colorize("暂无分析结果，请先运行动量分析后再保存模板。", "warning"))
-            continue
-        if choice == "4":
-            _interactive_delete_template()
-            continue
-        if choice in {"0", "__escape__"}:
-            return current_state
-        print(colorize("无效指令，请重新输入。", "warning"))
+    # Routed to commands.templates_menu
+    from .commands.templates_menu import run as _run_templates
+    return _run_templates(last_state)
 
 
 def _show_settings_menu() -> None:
-    while True:
-        options = [
-            {"key": "1", "label": "券池预设管理"},
-            {"key": "2", "label": "分析预设管理"},
-            {"key": "3", "label": "模板设置"},
-            {"key": "4", "label": "终端主题与色彩"},
-            {"key": "5", "label": "配置图表样式"},
-            {"key": "6", "label": "设置相关矩阵阈值"},
-            {"key": "7", "label": "动量/趋势阈值设置"},
-            {"key": "8", "label": "稳定度参数设置"},
-            {"key": "9", "label": "安装/修复依赖（Plotly 等）"},
-            {"key": "10", "label": "下载/更新 RQAlpha 数据包"},
-            {"key": "11", "label": "清理生成文件"},
-            {"key": "0", "label": "返回上级菜单"},
-        ]
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 设置与工具 ─" + "─" * 20,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="1",
-        )
-        if choice == "1":
-            _show_preset_settings_menu()
-            continue
-        if choice == "2":
-            _show_analysis_preset_settings_menu()
-            continue
-        if choice == "3":
-            _show_template_settings_menu()
-            continue
-        if choice == "4":
-            _configure_cli_theme()
-            continue
-        if choice == "5":
-            _configure_plot_style()
-            continue
-        if choice == "6":
-            _configure_correlation_threshold()
-            continue
-        if choice == "7":
-            _configure_signal_thresholds()
-            continue
-        if choice == "8":
-            _configure_stability_settings()
-            continue
-        if choice == "9":
-            _install_optional_dependencies()
-            continue
-        if choice == "10":
-            _update_data_bundle()
-            continue
-        if choice == "11":
-            _cleanup_generated_artifacts()
-            continue
-        if choice in {"0", "__escape__"}:
-            return
-        print(colorize("无效指令，请重新输入。", "warning"))
+    # Routed to commands.settings_menu
+    from .commands.settings_menu import run as _run_settings
+    _run_settings()
 
+
+# Moved to business.analysis (54 lines)
+from .business import run_quick_analysis as _biz_run_quick_analysis
 
 def _run_quick_analysis(post_actions: bool = False) -> dict | None:
-    preset = ANALYSIS_PRESETS.get("slow-core")
-    if not preset:
-        print(colorize("未找到 slow-core 分析预设，无法执行快速分析。", "warning"))
-        return None
-    core_pool = PRESETS.get("core")
-    satellite_pool = PRESETS.get("satellite")
-    if not core_pool and not satellite_pool:
-        print(colorize("未定义核心或卫星券池，无法执行快速分析。", "warning"))
-        return None
-    combined_codes: List[str] = []
-    preset_tags: List[str] = []
-    if core_pool:
-        combined_codes.extend(core_pool.tickers)
-        preset_tags.append("core")
-    if satellite_pool:
-        combined_codes.extend(satellite_pool.tickers)
-        preset_tags.append("satellite")
-    today = dt.date.today()
-    lookback_days = max(365 * 5, max(preset.momentum_windows) * 4, 750)
-    start_date = (today - dt.timedelta(days=lookback_days)).isoformat()
-    params = {
-        "codes": _dedup_codes(combined_codes),
-        "start": start_date,
-        "end": today.isoformat(),
-        "windows": tuple(preset.momentum_windows),
-        "corr_window": preset.corr_window,
-        "make_plots": False,
-        "export_csv": False,
-        "chop_window": preset.chop_window,
-        "trend_window": preset.trend_window,
-        "rank_lookback": preset.rank_lookback,
-        "output_dir": "results",
-        "weights": (
-            tuple(preset.momentum_weights)
-            if preset.momentum_weights is not None
-            else None
-        ),
-        "skip_windows": (
-            tuple(preset.momentum_skip_windows)
-            if preset.momentum_skip_windows is not None
-            else None
-        ),
-        "analysis_preset": preset,
-        "presets": preset_tags,
-        "lang": "zh",
-        "analysis_name": f"快速分析 · {preset.name}",
-    }
-    return _run_analysis_with_params(
-        params,
-        post_actions=post_actions,
-        bundle_context="快速分析",
-        bundle_interactive=True,
+    return _biz_run_quick_analysis(
+        analysis_presets=ANALYSIS_PRESETS,
+        code_presets=PRESETS,
+        dedup_codes_func=_dedup_codes,
+        run_analysis_func=_run_analysis_with_params,
+        colorize_func=colorize,
     )
 
 
@@ -6594,119 +4480,22 @@ def _ensure_analysis_state(
 
 
 def _show_about() -> None:
-    print("")
-    print(colorize(f"{APP_NAME} {APP_VERSION}", "heading"))
-    print(colorize("面向量化复盘的 ETF 动量分析与回测工具。", "menu_text"))
-    print(colorize("主要特性:", "menu_hint"))
-    for bullet in (
-        "快速分析核心/卫星券池并给出动量预警",
-        "交互式 Plotly 图表、策略导出与多区间回测",
-        "可配置模板、阈值与配色，适合定制流程",
-    ):
-        print(colorize(f" - {bullet}", "menu_text"))
-    print(colorize("项目主页:", "menu_hint"))
-    print(colorize(f" {REPO_URL}", "menu_text"))
-    print(colorize("作者: mky508", "menu_hint"))
-    print("")
+    # Routed to commands.about
+    from .commands import show_about as _cmd_show_about
+    _cmd_show_about(APP_NAME, APP_VERSION, REPO_URL)
 
 
 def _record_report_history(state: dict, label: str, preset: AnalysisPreset | None) -> None:
-    if not _INTERACTIVE_MODE:
-        return
-    config = state.get("config")
-    if not isinstance(config, AnalysisConfig):
-        return
-    timeframe_start = config.start_date or "最早可用"
-    timeframe_end = config.end_date or "最新"
-    timeframe = f"{timeframe_start} → {timeframe_end}"
-    etf_count = len(config.etfs)
+    # 	2024														 迁移至 business.history
+    from .business import record_history
     preset_label = f"{preset.name} [{preset.key}]" if preset else None
-    timestamp = dt.datetime.now()
-    if _REPORT_HISTORY and _REPORT_HISTORY[-1].get("state") is state:
-        _REPORT_HISTORY[-1].update(
-            {
-                "label": label,
-                "timeframe": timeframe,
-                "timestamp": timestamp,
-                "preset": preset_label,
-                "etf_count": etf_count,
-            }
-        )
-        return
-    entry = {
-        "label": label,
-        "timeframe": timeframe,
-        "timestamp": timestamp,
-        "preset": preset_label,
-        "etf_count": etf_count,
-        "state": state,
-    }
-    _REPORT_HISTORY.append(entry)
-    if len(_REPORT_HISTORY) > _MAX_REPORT_HISTORY:
-        _REPORT_HISTORY.pop(0)
+    record_history(state, label, preset_label, interactive=_INTERACTIVE_MODE)
 
 
 def _show_report_history(last_state: Optional[dict]) -> Optional[dict]:
-    if not _REPORT_HISTORY:
-        if last_state:
-            report = last_state.get("report_text")
-            if report:
-                print(report)
-            else:
-                _display_analysis_summary(last_state)
-            _wait_for_ack()
-            return last_state
-        print(colorize("暂无分析报告可回顾。", "warning"))
-        _wait_for_ack()
-        return last_state
-
-    while True:
-        history_items = list(reversed(_REPORT_HISTORY))
-        options: List[Dict[str, Any]] = []
-        for idx, entry in enumerate(history_items, start=1):
-            timestamp = entry["timestamp"].strftime(_REPORT_TIMESTAMP_FMT)
-            label = f"{timestamp} · {entry['label']}"
-            extra_lines = [
-                colorize(
-                    f"    区间: {entry['timeframe']} · ETF 数量: {entry['etf_count']}",
-                    "menu_hint",
-                )
-            ]
-            if entry.get("preset"):
-                extra_lines.append(
-                    colorize(f"    预设: {entry['preset']}", "dim")
-                )
-            options.append(
-                {
-                    "key": str(idx),
-                    "label": label,
-                    "extra_lines": extra_lines,
-                }
-            )
-        options.append({"key": "0", "label": "返回上级菜单"})
-        choice = _prompt_menu_choice(
-            options,
-            title="┌─ 报告回顾 ─" + "─" * 22,
-            header_lines=[""],
-            hint="↑/↓ 选择 · 回车确认 · 数字快捷 · ESC/q 返回",
-            default_key="1",
-        )
-        if choice in {"0", "__escape__"}:
-            return last_state
-        if choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(history_items):
-                selected = history_items[idx - 1]["state"]
-                report = selected.get("report_text")
-                print("")
-                if report:
-                    print(report)
-                else:
-                    _display_analysis_summary(selected)
-                _wait_for_ack()
-                last_state = selected
-                continue
-        print(colorize("无效指令，请重新选择。", "warning"))
+    # Routed to commands.history_menu
+    from .commands.history_menu import run as _history_run
+    return _history_run(last_state)
 
 
 def run_interactive() -> int:
@@ -6716,7 +4505,7 @@ def run_interactive() -> int:
         _set_color_enabled(sys.stdout.isatty())
         banner_top = colorize("╔" + "═" * 34 + "╗", "border")
         mid_content = f" {APP_NAME} 交互模式 "
-        banner_mid = colorize("║" + mid_content.center(34) + "║", "title")
+        banner_mid = colorize("║" + _pad_display(mid_content, 34, "center") + "║", "title")
         banner_bot = colorize("╚" + "═" * 34 + "╝", "border")
         banner_lines = ["", banner_top, banner_mid, banner_bot, ""]
         last_state: dict | None = None
@@ -6796,6 +4585,229 @@ def run_interactive() -> int:
             print(colorize("无效指令，请重新选择。", "warning"))
     finally:
         _INTERACTIVE_MODE = False
+
+
+def _get_strategy_description(strategy_name: str) -> str:
+    """获取策略说明文档"""
+    descriptions = {
+        "慢腿轮动": """
+策略说明：核心+慢腿轮动（月度调仓）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：0.6×(3M-1M) + 0.4×(6M-1M)
+  • 稳定度调整：20%权重，降低追高风险
+  • 稳定度窗口：30个交易日
+  • 持仓数量：市场强势(沪深300>MA200)时2条腿×20%
+              市场弱势(沪深300<MA200)时1条腿×15%
+
+换仓规则：
+  • 检查频率：每月末最后一个交易日
+  • 选股方式：选择稳定度调整后动量得分最高的N只ETF
+  • 稳定度计算：标的在过去30日内出现在前10的频率
+
+止损规则：
+  • 强势市场(沪深300>MA200 且 ATR<4%)：-10%
+  • 正常市场(沪深300>MA200 且 ATR≥4%)：-12%
+  • 弱势市场(沪深300<MA200)：-15%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        "快腿轮动": """
+策略说明：核心+快腿轮动（周度调仓）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：20日收益率
+  • 持仓数量：市场强势2条腿×20%，弱势1条腿×15%
+
+换仓规则：
+  • 检查频率：每周五
+  • 选股方式：选择20日动量最高的N只ETF
+
+止损规则：
+  • 跌破20日最低价即止损
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        "宏观驱动": """
+策略说明：核心+宏观驱动（12M-1M长波动量）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：12M-1M长波动量
+  • 持仓数量：市场强势2条腿×20%，弱势1条腿×15%
+
+换仓规则：
+  • 检查频率：每月末最后一个交易日
+  • 选股方式：选择12M-1M动量最高的N只ETF
+
+止损规则：
+  • 强势市场：-10%
+  • 正常市场：-12%
+  • 弱势市场：-15%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        "改进慢腿轮动(观察期)": """
+策略说明：改进慢腿轮动（观察期机制）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+持仓规则：
+  • 动量计算：0.6×(3M-1M) + 0.4×(6M-1M)
+  • 稳定度调整：20%权重，降低追高风险
+  • 稳定度窗口：30个交易日
+  • 持仓数量：市场强势(沪深300>MA200)时2条腿×20%
+              市场弱势(沪深300<MA200)时1条腿×15%
+
+换仓规则：
+  • 检查频率：每周五（而非每月）
+  • 观察期机制：掉出前2后观察2周
+  • 换仓条件：连续2周排名<3，或触发止损
+  • 重新入选：观察期内重回前2，取消换仓
+  • 稳定度计算：标的在过去30日内出现在前10的频率
+
+止损规则：
+  • 强势市场(沪深300>MA200 且 ATR<4%)：-10%
+  • 正常市场(沪深300>MA200 且 ATR≥4%)：-12%
+  • 弱势市场(沪深300<MA200)：-15%
+  • 止损优先：触发止损立即卖出，无视观察期
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+    }
+    return descriptions.get(strategy_name, "")
+
+
+def _run_strategy_backtest_menu() -> None:
+    """运行策略回测菜单"""
+    from .backtest import (
+        run_slow_leg_strategy,
+        run_fast_leg_strategy,
+        run_macro_driven_strategy,
+        run_improved_slow_leg_strategy
+    )
+    from .analysis_presets import ANALYSIS_PRESETS
+
+    print(colorize("\n" + "═" * 60, "border"))
+    print(colorize("策略回测选择", "title"))
+    print(colorize("═" * 60 + "\n", "border"))
+
+    options = [
+        {"key": "1", "label": "核心 + 慢腿轮动 (月度, 含稳定度)"},
+        {"key": "2", "label": "核心 + 快腿轮动 (周度, 20日动量)"},
+        {"key": "3", "label": "核心 + 宏观驱动 (12M-1M 长波)"},
+        {"key": "4", "label": "改进慢腿轮动 (观察期机制) ⭐推荐"},
+        {"key": "0", "label": "返回上级菜单"},
+    ]
+
+    choice = _prompt_menu_choice(
+        options,
+        title="选择要回测的策略",
+        hint="↑/↓ 选择策略 · 回车确认 · 0 返回"
+    )
+
+    if choice in {"0", "__escape__"}:
+        return
+
+    # 选择券池
+    print(colorize("\n选择回测券池:", "heading"))
+    preset_options = [
+        {"key": key, "label": f"{preset.name} - {preset.description}"}
+        for key, preset in PRESETS.items()
+    ]
+    preset_options.append({"key": "0", "label": "取消"})
+
+    preset_choice = _prompt_menu_choice(preset_options, title="选择券池预设")
+
+    if preset_choice in {"0", "__escape__"}:
+        return
+
+    # 获取选中的preset
+    selected_preset = PRESETS.get(preset_choice)
+    if not selected_preset:
+        print(colorize("未找到选中的券池", "danger"))
+        _wait_for_ack()
+        return
+
+    # 获取ETF代码列表
+    etf_codes = list(selected_preset.etfs)
+
+    # 设置回测时间范围
+    print(colorize("\n设置回测时间范围:", "heading"))
+    start_date = input(colorize("开始日期 (YYYY-MM-DD, 默认: 2020-01-01): ", "prompt")).strip() or "2020-01-01"
+    end_date = input(colorize("结束日期 (YYYY-MM-DD, 默认: 今天): ", "prompt")).strip() or dt.date.today().isoformat()
+
+    # 根据选择的策略运行回测
+    strategy_map = {
+        "1": ("slow-core", run_slow_leg_strategy, "慢腿轮动"),
+        "2": ("fast-rotation", run_fast_leg_strategy, "快腿轮动"),
+        "3": ("twelve-minus-one", run_macro_driven_strategy, "宏观驱动"),
+        "4": ("slow-core", run_improved_slow_leg_strategy, "改进慢腿轮动(观察期)")
+    }
+
+    if choice not in strategy_map:
+        print(colorize("无效的策略选择", "danger"))
+        _wait_for_ack()
+        return
+
+    analysis_preset_key, strategy_func, strategy_name = strategy_map[choice]
+
+    # 获取对应的分析预设参数
+    analysis_preset = ANALYSIS_PRESETS.get(analysis_preset_key)
+    if not analysis_preset:
+        print(colorize(f"未找到分析预设: {analysis_preset_key}", "danger"))
+        _wait_for_ack()
+        return
+
+    momentum_params = {
+        'momentum_windows': list(analysis_preset.momentum_windows),
+        'momentum_weights': list(analysis_preset.momentum_weights) if analysis_preset.momentum_weights else None,
+        'momentum_skip_windows': list(analysis_preset.momentum_skip_windows) if analysis_preset.momentum_skip_windows else None,
+        'stability_weight': 0.2,  # 稳定度权重
+        'stability_window': 30,   # 稳定度窗口
+        'observation_weeks': 2    # 观察期周数（仅用于改进策略）
+    }
+
+    print(colorize(f"\n开始运行 {strategy_name} 策略回测...", "info"))
+    print(colorize(f"券池: {selected_preset.name}", "dim"))
+    print(colorize(f"ETF数量: {len(etf_codes)}", "dim"))
+    print(colorize(f"时间范围: {start_date} 至 {end_date}", "dim"))
+
+    try:
+        result = strategy_func(
+            etf_codes=etf_codes,
+            start_date=start_date,
+            end_date=end_date,
+            momentum_params=momentum_params
+        )
+
+        # 显示策略说明
+        strategy_desc = _get_strategy_description(strategy_name)
+        if strategy_desc:
+            print(colorize(strategy_desc, "dim"))
+
+        # 显示回测结果
+        print(colorize("\n" + "═" * 60, "border"))
+        print(colorize(f"回测结果 - {result.strategy_name}", "title"))
+        print(colorize("═" * 60, "border"))
+
+        print(colorize(f"\n总收益率: ", "heading") + colorize(f"{result.total_return:.2f}%",
+              "value_positive" if result.total_return > 0 else "value_negative"))
+        print(colorize(f"年化收益率: ", "heading") + colorize(f"{result.annual_return:.2f}%",
+              "value_positive" if result.annual_return > 0 else "value_negative"))
+        print(colorize(f"夏普比率: ", "heading") + colorize(f"{result.sharpe_ratio:.2f}", "accent"))
+        print(colorize(f"最大回撤: ", "heading") + colorize(f"{result.max_drawdown:.2f}%", "value_negative"))
+        print(colorize(f"交易次数: ", "heading") + colorize(f"{len(result.trades)}", "info"))
+
+        # 显示最近几笔交易
+        if result.trades:
+            print(colorize("\n最近5笔交易:", "heading"))
+            for trade in result.trades[-5:]:
+                action_color = "value_positive" if trade.action == "BUY" else "value_negative"
+                print(f"  {trade.date} | {colorize(trade.action, action_color)} {trade.code} | "
+                      f"价格: {trade.price:.2f} | 原因: {trade.reason}")
+
+        print(colorize("\n" + "═" * 60 + "\n", "border"))
+
+    except Exception as e:
+        print(colorize(f"\n回测失败: {e}", "danger"))
+        import traceback
+        traceback.print_exc()
+
+    _wait_for_ack()
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -7033,7 +5045,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     _maybe_prompt_bundle_refresh(False, "命令行分析")
 
     try:
-        result = analyze(config)
+        from .business.analysis import run_analysis_only
+        result = run_analysis_only(config)
     except Exception as exc:  # noqa: BLE001
         parser.error(str(exc))
         return 1

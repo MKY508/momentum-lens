@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+import os
 
 import matplotlib
 
@@ -48,9 +49,9 @@ class AnalysisConfig:
     trend_consistency_fast_span: int = 20
     trend_consistency_slow_span: int = 60
     stability_method: str = "presence_ratio"
-    stability_window: int = 15
+    stability_window: int = 30  # 从15改为30天，更长的稳定度观察窗口
     stability_top_n: int = 10
-    stability_weight: float = 0.0
+    stability_weight: float = 0.2  # 从0.0改为0.2，启用稳定度权重降低追高风险
     make_plots: bool = True
 
 
@@ -341,7 +342,7 @@ def analyze(config: AnalysisConfig) -> AnalysisResult:
     if not raw_data:
         raise RuntimeError("No data loaded for requested ETFs. Check bundle path and symbols.")
 
-    momentum_df = pd.DataFrame(momentum_scores).dropna(how="any")
+    momentum_df = pd.DataFrame(momentum_scores).dropna(how="all")
     if momentum_df.empty:
         raise RuntimeError("动量得分为空，请检查窗口长度与数据覆盖。")
     rank_df_raw = rolling_rank(momentum_df, ascending=False)
@@ -489,7 +490,8 @@ def analyze(config: AnalysisConfig) -> AnalysisResult:
     correlation_df = returns_df.tail(corr_window).corr().round(3)
 
     plot_paths: List[Path] = []
-    if config.make_plots:
+    make_plots = bool(config.make_plots) and os.getenv("MOMENTUM_FAST", "").lower() not in {"1", "true", "yes", "on"}
+    if make_plots:
         output_dir = _ensure_output_dir(config.output_dir)
         plot_paths.extend(_make_plots(output_dir, momentum_df, rank_df, trend_values))
 
