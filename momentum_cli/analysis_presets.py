@@ -228,9 +228,6 @@ DEFAULT_ANALYSIS_PRESETS: Dict[str, AnalysisPreset] = {
         rank_lookback=3,
         notes="用于高频复盘，提升对短线拐点的敏感度。",
     ),
-}
-
-
     # === 实验性策略（需要特殊计算逻辑） ===
     "sharpe-momentum": AnalysisPreset(
         key="sharpe-momentum",
