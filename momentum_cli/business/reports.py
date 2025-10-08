@@ -285,6 +285,7 @@ def build_strategy_gate_entries(result, lang: str, format_label_func=None) -> li
 
     top_label: Optional[str] = None
     top_score: Optional[float] = None
+    top_percentile: Optional[float] = None
     top_adx: Optional[float] = None
     top_adx_state: Optional[str] = None
 
@@ -300,6 +301,10 @@ def build_strategy_gate_entries(result, lang: str, format_label_func=None) -> li
             top_score = float(top_row.get("momentum_score"))
         except (TypeError, ValueError):
             top_score = None
+        try:
+            top_percentile = float(top_row.get("momentum_percentile"))
+        except (TypeError, ValueError):
+            top_percentile = None
         try:
             top_adx = float(top_row.get("adx"))
         except (TypeError, ValueError):
@@ -329,11 +334,11 @@ def build_strategy_gate_entries(result, lang: str, format_label_func=None) -> li
             elif avg_chg > 0.3:
                 entries.append(("市场上涨" if is_zh else "Market Up", "info"))
 
-    # 榜首动量门控
-    if top_score is not None:
-        if top_score < 0.3:
+    # 榜首动量门控（使用分位数判断）
+    if top_percentile is not None:
+        if top_percentile < 50:
             entries.append(("榜首动量弱" if is_zh else "Top Weak", "warning"))
-        elif top_score > 0.7:
+        elif top_percentile >= 70:
             entries.append(("榜首动量强" if is_zh else "Top Strong", "success"))
 
     # ADX 门控

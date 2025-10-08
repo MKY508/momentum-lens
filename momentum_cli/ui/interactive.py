@@ -168,12 +168,13 @@ def _handle_interactive_menu(
                 print(line)
                 footer_line_count += 1
 
-        # 打印输入提示
-        sys.stdout.write(colorize(prompt_text, "prompt"))
-        sys.stdout.flush()
+        # 打印输入提示（已移除，footer已包含操作提示）
+        # sys.stdout.write(colorize(prompt_text, "prompt"))
+        # sys.stdout.flush()
 
         # 记录本次渲染的总行数（保留输出模式下不记录，避免重复擦除）
-        current_lines = len(menu_lines) + footer_line_count + 1
+        # 注意：提示符(prompt_text)使用 sys.stdout.write 不换行，不计入行数
+        current_lines = len(menu_lines) + footer_line_count
         previous_lines = current_lines if not _PRESERVE_OUTPUT else 0
 
         # 读取按键
@@ -200,9 +201,15 @@ def _handle_interactive_menu(
 
         if isinstance(result, str):
             # 清除渲染（除非保留输出模式）
-            if previous_lines > 0 and not _PRESERVE_OUTPUT:
-                sys.stdout.write(f"\033[{previous_lines}A\033[J")
-                sys.stdout.flush()
+            if not _PRESERVE_OUTPUT:
+                # 清除菜单和footer
+                if previous_lines > 0:
+                    sys.stdout.write(f"[{previous_lines}A[J")
+                    sys.stdout.flush()
+                # 清除header
+                if header_line_count > 0:
+                    sys.stdout.write(f"[{header_line_count}A[J")
+                    sys.stdout.flush()
             elif _PRESERVE_OUTPUT:
                 # 保留输出模式：打印选择结果
                 print(f"\n{colorize('选择:', 'prompt')} {result}")

@@ -22,9 +22,9 @@ DEFAULT_SETTINGS = {
     "trend_consistency_fast_span": 20,
     "trend_consistency_slow_span": 60,
     "stability_method": "presence_ratio",
-    "stability_window": 15,
+    "stability_window": 30,  # 从15改为30，更长的稳定度观察窗口
     "stability_top_n": 10,
-    "stability_weight": 0.0,
+    "stability_weight": 0.2,  # 从0.0改为0.2，启用稳定度权重降低追高风险
 }
 
 # 配置文件路径

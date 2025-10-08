@@ -1301,6 +1301,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="分析完成后运行内置的简易动量回测。",
     )
     output_group.add_argument(
+        "--experimental",
+        action="store_true",
+        help="直接运行实验性科学动量分析（跳过菜单）。",
+    )
+    output_group.add_argument(
         "--lang",
         choices=["zh", "en"],
         default="zh",
@@ -5086,6 +5091,24 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.run_backtest:
         preset_for_bt = _make_backtest_preset(analysis_preset, config, momentum_config)
         _run_simple_backtest(result, preset_for_bt)
+
+    if args.experimental:
+        # Run experimental scientific momentum directly
+        from .business.experimental import EXPERIMENTAL_PRESETS
+        preset_name = "科学动量v1"  # Default to first preset
+        cfg = EXPERIMENTAL_PRESETS[preset_name]
+        print(colorize(f"[实验] 使用预设: {preset_name}", "value_positive"))
+
+        from .business.experimental import run_experimental_momentum_backtest as _biz_run_experimental_momentum
+        _biz_run_experimental_momentum(
+            obtain_context_func=_obtain_backtest_context,
+            format_label_func=_format_label,
+            colorize_func=colorize,
+            render_table_func=_render_backtest_table,
+            wait_for_ack_func=_wait_for_ack,
+            last_state={"result": result, "config": config, "momentum_config": momentum_config},
+            config=cfg,
+        )
 
     if args.export_strategy:
         label = (

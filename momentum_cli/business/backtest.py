@@ -855,3 +855,275 @@ def run_core_satellite_custom_backtest(
 
     wait_for_ack_func()
 
+
+
+
+def run_core_satellite_enhanced_backtest(
+    obtain_context_func,
+    get_core_satellite_codes_func,
+    format_label_func,
+    colorize_func,
+    render_table_func,
+    wait_for_ack_func,
+    last_state: dict | None = None,
+    *,
+    # 核心配置
+    core_allocation: float = 0.6,
+    satellite_allocation: float = 0.4,
+    top_n: int = 2,
+    # 止损配置
+    enable_stop_loss: bool = True,
+    stop_loss_pct: float = 0.15,  # 从最高点回撤15%止损
+    # 再平衡配置
+    enable_rebalance: bool = True,
+    rebalance_threshold: float = 0.05,  # 偏离5%时再平衡
+    # 防御配置
+    enable_defense: bool = True,
+    defense_ma_window: int = 200,  # MA200作为趋势判断
+    defense_satellite_allocation: float = 0.20,  # 防御时卫星仓降至20%
+) -> None:
+    """
+    核心-卫星增强回测（含止损、再平衡、防御机制）
+
+    策略逻辑：
+    1. 核心仓：60%等权持有核心券池全部标的
+    2. 卫星仓：40%择优持有卫星券池中动量得分排名前N
+    3. 止损：单只ETF从最高点回撤>15%时止损
+    4. 再平衡：每月检查，偏离>5%时再平衡
+    5. 防御：大盘MA200以下时，降低卫星仓至20%
+    """
+
+    context = obtain_context_func(last_state, allow_reuse=False)
+    if not context:
+        return
+
+    result = context["result"]
+    momentum_df = result.momentum_scores
+    close_df = pd.DataFrame({code: data["close"] for code, data in result.raw_data.items()}).sort_index().dropna(how="all")
+
+    if close_df.empty or momentum_df.empty:
+        print(colorize_func("无法回测：数据为空。", "warning"))
+        return
+
+    # 对齐动量与价格
+    common_dates = close_df.index.intersection(momentum_df.index)
+    if len(common_dates) < 20:
+        print(colorize_func("重叠区间过短，无法回测。", "warning"))
+        return
+
+    close_df = close_df.loc[common_dates].sort_index()
+    returns_df = close_df.pct_change().fillna(0.0)
+    momentum_df = momentum_df.loc[common_dates]
+
+    # 获取核心和卫星券池
+    core_codes, satellite_codes = get_core_satellite_codes_func()
+    available = set(close_df.columns)
+    core_set = [c for c in core_codes if c in available]
+    sat_set = [c for c in satellite_codes if c in available]
+
+    if not core_set and not sat_set:
+        print(colorize_func("核心与卫星券池均无可用标的，无法执行回测。", "danger"))
+        return
+
+    # 调仓日期（月末）
+    rebalance_dates = close_df.resample("ME").last().index
+    if rebalance_dates.empty:
+        rebalance_dates = close_df.index
+
+    # 市场代理（用于防御判断）
+    market_code = "510300.XSHG" if "510300.XSHG" in close_df.columns else (core_set[0] if core_set else None)
+    market_close = close_df[market_code] if market_code else None
+    ma200 = market_close.rolling(window=defense_ma_window, min_periods=1).mean() if market_close is not None else None
+
+    # 初始化
+    weights = pd.DataFrame(0.0, index=close_df.index, columns=close_df.columns)
+    current_w: dict[str, float] = {}
+    high_water_mark: dict[str, float] = {}  # 记录每只ETF的最高点
+    stop_loss_triggered: set[str] = set()  # 已触发止损的ETF
+    rebalance_log: list[dict] = []  # 调仓记录
+
+    for date in close_df.index:
+        # 更新最高点
+        for code in close_df.columns:
+            if code not in high_water_mark:
+                high_water_mark[code] = close_df.loc[date, code]
+            else:
+                high_water_mark[code] = max(high_water_mark[code], close_df.loc[date, code])
+
+        # 检查止损
+        if enable_stop_loss:
+            for code in list(current_w.keys()):
+                if code in stop_loss_triggered:
+                    continue
+                current_price = close_df.loc[date, code]
+                high = high_water_mark.get(code, current_price)
+                drawdown = (current_price - high) / high if high > 0 else 0
+
+                if drawdown < -stop_loss_pct:
+                    # 触发止损
+                    stop_loss_triggered.add(code)
+                    if code in current_w:
+                        del current_w[code]
+                    rebalance_log.append({
+                        "date": str(date.date()),
+                        "action": "STOP_LOSS",
+                        "code": code,
+                        "price": float(current_price),
+                        "drawdown": float(drawdown),
+                    })
+
+        # 调仓日
+        if date in rebalance_dates:
+            target: dict[str, float] = {}
+
+            # 判断市场状态（防御）
+            above_ma = False
+            if enable_defense and market_close is not None and ma200 is not None:
+                if not pd.isna(market_close.loc[date]) and not pd.isna(ma200.loc[date]):
+                    above_ma = market_close.loc[date] > ma200.loc[date]
+
+            # 确定卫星仓配置
+            if enable_defense and not above_ma:
+                sat_alloc = defense_satellite_allocation
+            else:
+                sat_alloc = satellite_allocation
+
+            # 分配核心仓（等权）
+            if core_set:
+                core_weight = core_allocation / len(core_set)
+                for code in core_set:
+                    target[code] = core_weight
+
+            # 分配卫星仓（择优TopN）
+            if sat_set and sat_alloc > 0:
+                # 排除已止损的ETF
+                available_sat = [c for c in sat_set if c not in stop_loss_triggered]
+                if available_sat:
+                    scores = momentum_df.loc[date, available_sat].dropna()
+                    if not scores.empty:
+                        picks = scores.sort_values(ascending=False).head(top_n).index.tolist()
+                        sat_weight = sat_alloc / len(picks)
+                        for code in picks:
+                            target[code] = target.get(code, 0.0) + sat_weight
+
+            # 再平衡检查
+            if enable_rebalance and current_w:
+                need_rebalance = False
+                for code, target_weight in target.items():
+                    current_weight = current_w.get(code, 0.0)
+                    if abs(target_weight - current_weight) > rebalance_threshold:
+                        need_rebalance = True
+                        break
+
+                if need_rebalance:
+                    rebalance_log.append({
+                        "date": str(date.date()),
+                        "action": "REBALANCE",
+                        "from": dict(current_w),
+                        "to": dict(target),
+                    })
+                    current_w = target
+                # 否则保持当前权重
+            else:
+                current_w = target
+
+        # 应用权重
+        if current_w:
+            for code, w in current_w.items():
+                weights.loc[date, code] = w
+
+    # 计算收益
+    shifted = weights.shift().ffill().fillna(0.0)
+    portfolio_returns = (shifted * returns_df).sum(axis=1)
+
+    # 多区间回测
+    horizons = [
+        ("近10年", pd.DateOffset(years=10)),
+        ("近5年", pd.DateOffset(years=5)),
+        ("近2年", pd.DateOffset(years=2)),
+        ("近1年", pd.DateOffset(years=1)),
+        ("近6个月", pd.DateOffset(months=6)),
+        ("近3个月", pd.DateOffset(months=3)),
+    ]
+
+    end_date = close_df.index.max()
+    rows = []
+
+    for label, offset in horizons:
+        start_candidate = end_date - offset
+        mask = close_df.index >= start_candidate
+        slice_returns = portfolio_returns.loc[mask]
+
+        if slice_returns.empty:
+            continue
+
+        metrics = calculate_performance_metrics(slice_returns)
+        if metrics["days"] == 0:
+            continue
+
+        def _fmt_pct(x: float, digits=2):
+            import numpy as _np
+            return "-" if _np.isnan(x) else f"{x:.{digits}%}"
+
+        def _fmt_num(x):
+            import numpy as _np
+            return "-" if _np.isnan(x) else f"{x:.2f}"
+
+        row = {
+            "label": label,
+            "start": str(slice_returns.index.min().date()),
+            "end": str(slice_returns.index.max().date()),
+            "days": str(metrics["days"]),
+            "total": _fmt_pct(metrics["total_return"]),
+            "annual": _fmt_pct(metrics["annualized"]),
+            "vol": _fmt_pct(metrics["volatility"]),
+            "maxdd": _fmt_pct(metrics["max_drawdown"]),
+            "sharpe": _fmt_num(metrics["sharpe"]),
+            "note": "",
+        }
+
+        import numpy as _np
+        if not _np.isnan(metrics["total_return"]):
+            if metrics["total_return"] >= 0:
+                row["style_total"] = "value_positive"
+                row["style_annual"] = "value_positive"
+            else:
+                row["style_total"] = "value_negative"
+                row["style_annual"] = "value_negative"
+        if not _np.isnan(metrics["max_drawdown"]):
+            row["style_maxdd"] = "value_negative" if metrics["max_drawdown"] < 0 else "value_positive"
+        if not _np.isnan(metrics["sharpe"]):
+            row["style_sharpe"] = "accent" if metrics["sharpe"] > 0 else "warning"
+
+        rows.append(row)
+
+    # 输出结果
+    print(colorize_func("\n=== 核心-卫星增强回测（含止损/再平衡/防御） ===", "heading"))
+    print(colorize_func(f"核心仓: {core_allocation:.0%} 等权 | 卫星仓: {satellite_allocation:.0%} 择优Top{top_n}", "menu_hint"))
+    print(colorize_func(f"止损: {'启用' if enable_stop_loss else '禁用'} ({stop_loss_pct:.0%}) | "
+                       f"再平衡: {'启用' if enable_rebalance else '禁用'} ({rebalance_threshold:.0%}) | "
+                       f"防御: {'启用' if enable_defense else '禁用'} (MA{defense_ma_window})", "menu_text"))
+    print(colorize_func(f"核心仓标的数: {len(core_set)} | 卫星仓候选: {len(sat_set)}", "menu_text"))
+    print()
+
+    print(render_table_func(rows))
+
+    # 显示最新权重
+    if current_w:
+        sorted_holdings = sorted(current_w.items(), key=lambda kv: kv[1], reverse=True)
+        lines = [f"{format_label_func(code)}: {w:.1%}" for code, w in sorted_holdings]
+        print(colorize_func("\n最新权重:", "heading"))
+        print(colorize_func("; ".join(lines), "menu_text"))
+
+    # 显示止损记录
+    if stop_loss_triggered:
+        print(colorize_func(f"\n⚠️  已触发止损的ETF ({len(stop_loss_triggered)}只):", "warning"))
+        for code in stop_loss_triggered:
+            print(colorize_func(f"  • {format_label_func(code)}", "menu_text"))
+
+    # 显示调仓统计
+    rebalance_count = len([log for log in rebalance_log if log["action"] == "REBALANCE"])
+    stop_loss_count = len([log for log in rebalance_log if log["action"] == "STOP_LOSS"])
+    print(colorize_func(f"\n📊 调仓统计: 再平衡{rebalance_count}次 | 止损{stop_loss_count}次", "accent"))
+
+    wait_for_ack_func()
