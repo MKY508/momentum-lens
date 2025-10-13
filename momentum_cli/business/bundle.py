@@ -23,12 +23,14 @@ def update_data_bundle_interactive(
         wait_for_ack_func: 等待确认的函数
         colorize_func: 着色函数
     """
-    status = bundle_status_func(True, {})
-    if status.get("state") == "fresh":
-        version_display = status.get("version") or status.get("version_raw") or "最新版本"
-        print(colorize_func(f"当前数据包 {version_display} 已是最新，无需重新下载。", "info"))
-        wait_for_ack_func()
-        return
+    # 移除本地版本检查，直接调用 RQAlpha 命令
+    # RQAlpha 的 download-bundle/update-bundle 会自行判断是否需要更新
+    # status = bundle_status_func(True, {})
+    # if status.get("state") == "fresh":
+    #     version_display = status.get("version") or status.get("version_raw") or "最新版本"
+    #     print(colorize_func(f"当前数据包 {version_display} 已是最新，无需重新下载。", "info"))
+    #     wait_for_ack_func()
+    #     return
     
     command = find_rqalpha_func()
     if not command:

@@ -123,7 +123,8 @@ def bundle_status(force_refresh: bool = False, cache: dict | None = None) -> dic
 
         months_delta = (today.year - year) * 12 + (today.month - month)
         status["months_behind"] = months_delta
-        status["state"] = "fresh" if months_delta <= 0 else "stale"
+        # 数据包允许落后1个月内视为最新（RQAlpha 数据通常有延迟）
+        status["state"] = "fresh" if months_delta <= 1 else "stale"
 
     if updated_dt:
         now = dt.datetime.now(updated_dt.tzinfo) if updated_dt.tzinfo else dt.datetime.now()
