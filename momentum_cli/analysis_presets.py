@@ -228,8 +228,73 @@ DEFAULT_ANALYSIS_PRESETS: Dict[str, AnalysisPreset] = {
         rank_lookback=3,
         notes="用于高频复盘，提升对短线拐点的敏感度。",
     ),
+    # === 实验性策略（需要特殊计算逻辑） ===
+    "sharpe-momentum": AnalysisPreset(
+        key="sharpe-momentum",
+        name="夏普动量·风险调整",
+        description="6M-1M 收益除以波动率，追求风险调整后收益最大化",
+        momentum_windows=(126,),
+        momentum_weights=(1.0,),
+        momentum_skip_windows=(21,),
+        corr_window=60,
+        chop_window=14,
+        trend_window=90,
+        rank_lookback=5,
+        notes="实验性策略：动量得分会被波动率调整，降低高波资产权重。",
+    ),
+    "alpha-residual": AnalysisPreset(
+        key="alpha-residual",
+        name="残差Alpha·市场中性",
+        description="对沪深300回归后的残差动量，剔除市场Beta影响",
+        momentum_windows=(126,),
+        momentum_weights=(1.0,),
+        momentum_skip_windows=(21,),
+        corr_window=60,
+        chop_window=14,
+        trend_window=90,
+        rank_lookback=5,
+        notes="实验性策略：只选择跑赢市场的品种，降低系统性风险敞口。",
+    ),
+    "trend-quality": AnalysisPreset(
+        key="trend-quality",
+        name="趋势质量·信号过滤",
+        description="6M-1M 动量 × 趋势强度(ADX>25 & CHOP<38 & 价格>EMA60)",
+        momentum_windows=(126,),
+        momentum_weights=(1.0,),
+        momentum_skip_windows=(21,),
+        corr_window=60,
+        chop_window=14,
+        trend_window=90,
+        rank_lookback=5,
+        notes="实验性策略：只在趋势明确时持有动量标的，震荡市自动降权。",
+    ),
+    "rank-percentile": AnalysisPreset(
+        key="rank-percentile",
+        name="截面排名·分位强度",
+        description="截面标准化后只选排名前20%的标的(Z-score>0.84)",
+        momentum_windows=(126,),
+        momentum_weights=(1.0,),
+        momentum_skip_windows=(21,),
+        corr_window=60,
+        chop_window=14,
+        trend_window=90,
+        rank_lookback=5,
+        notes="实验性策略：相对排名比绝对收益更稳定，减少极端值影响。",
+    ),
+    "composite-factor": AnalysisPreset(
+        key="composite-factor",
+        name="复合因子·全天候",
+        description="动量(50%) + 低波(30%) + 质量(20%) 多因子组合",
+        momentum_windows=(126,),
+        momentum_weights=(1.0,),
+        momentum_skip_windows=(21,),
+        corr_window=60,
+        chop_window=14,
+        trend_window=90,
+        rank_lookback=5,
+        notes="实验性策略：平衡收益与风险，适合长期持有的全天候配置。",
+    ),
 }
-
 
 ANALYSIS_PRESETS: Dict[str, AnalysisPreset] = {}
 
@@ -315,6 +380,20 @@ def delete_analysis_preset(key: str) -> bool:
     _write_analysis_preset_store(store)
     refresh_analysis_presets()
     return True
+
+
+# ---- Convenience helpers for CLI/UI ----
+
+def preset_status_label(key: str) -> str:
+    """Return a short status marker for a preset key.
+    - "内置": key exists in defaults and no user override
+    - "覆盖": key exists in defaults and user override is present
+    - "自定义": user-defined preset not in defaults
+    """
+    normalized = _normalize_key(key)
+    if normalized in DEFAULT_ANALYSIS_PRESETS:
+        return "覆盖" if has_custom_analysis_override(normalized) else "内置"
+    return "自定义"
 
 
 def reset_analysis_preset(key: str) -> bool:
